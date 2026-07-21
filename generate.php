@@ -311,11 +311,9 @@ if (!empty($hostids)) {
 
 $cookieJar = isset($_SESSION['zbx_cookiejar']) ? (string)$_SESSION['zbx_cookiejar'] : (TMP_DIR . '/zbx_cj_' . session_id() . '.txt');
 if (!is_file($cookieJar) || filesize($cookieJar) < 10) {
-    if (!web_login_cookiejar(ZABBIX_URL, $WEB_USER, $WEB_PASS, $cookieJar)) {
-        http_response_code(500);
-        echo "<h3>Error</h3><pre>" . t('generate_web_login_failed') . "</pre>";
-        exit;
-    }
+    http_response_code(401);
+    echo "<h3>Sessão expirada</h3><p>Sua sessão web do Zabbix expirou. <a href='login.php'>Faça login novamente</a>.</p>";
+    exit;
 }
 
 $entries = [];
@@ -426,11 +424,13 @@ if (empty($entries)) {
     exit;
 }
 
-$outfile = TMP_DIR . '/zabbix_report_' . date('Ymd_His') . '.pdf';
+$safeUser = $WEB_USER ? preg_replace('/[^a-zA-Z0-9._-]/', '_', $WEB_USER) : 'report';
+$filename = 'zabbix-report_' . $safeUser . '_' . date('Y-m-d_Hi') . '.pdf';
+$outfile = TMP_DIR . '/' . $filename;
 try {
     PdfBuilder::build($entries, $outfile, $WEB_USER, $from_text, $to_text);
     header('Content-Type: application/pdf');
-    header('Content-Disposition: attachment; filename="' . basename($outfile) . '"');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache'); header('Expires: 0');
     
