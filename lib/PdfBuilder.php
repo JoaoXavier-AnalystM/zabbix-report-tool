@@ -29,17 +29,12 @@ class PdfBuilder
         }
 
         $baseDir = __DIR__ . '/..';
-        $unicredLogo = $baseDir . '/assets/unicred.svg';
         $zabbixLogo  = $baseDir . '/assets/Zabbix_logo.png';
-
-        $unicredB64 = is_file($unicredLogo)
-            ? 'data:image/svg+xml;base64,' . base64_encode(file_get_contents($unicredLogo))
-            : '';
         $zabbixB64 = is_file($zabbixLogo)
             ? 'data:image/png;base64,' . base64_encode(file_get_contents($zabbixLogo))
             : '';
 
-        $html = self::buildHtml($imgs, $unicredB64, $zabbixB64, $userName, $fromText, $toText);
+        $html = self::buildHtml($imgs, $zabbixB64, $userName, $fromText, $toText);
 
         $eng = $engine ?: 'dompdf';
         if ($eng === 'wkhtmltopdf') {
@@ -53,7 +48,7 @@ class PdfBuilder
         }
     }
 
-    private static function buildHtml(array $imgs, string $unicredLogo, string $zabbixLogo, string $userName, string $fromText, string $toText): string
+    private static function buildHtml(array $imgs, string $zabbixLogo, string $userName, string $fromText, string $toText): string
     {
         $blocks = [];
         $toc = [];
@@ -170,8 +165,6 @@ class PdfBuilder
         <body>
             <div class="header">
                 <div class="header-logos">
-                    <img src="'.$unicredLogo.'" alt="Unicred">
-                    <div class="header-divider"></div>
                     <img src="'.$zabbixLogo.'" alt="Zabbix">
                 </div>
                 <div class="header-info">
