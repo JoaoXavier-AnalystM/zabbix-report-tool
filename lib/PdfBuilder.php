@@ -196,13 +196,17 @@ class PdfBuilder
             <div class="footer"></div>
             <script type="text/php">
                 if (isset($pdf)) {
-                    $text = "'.$pageLabel.'";
-                    $font = $fontMetrics->get_font("Arial, sans-serif", "bold");
-                    $size = 8;
-                    $w = $fontMetrics->get_text_width($text, $font, $size);
-                    $y = $pdf->get_height() - 24;
-                    $x = ($pdf->get_width() - $w) / 2;
-                    $pdf->page_text($x, $y, $text, $font, $size, [0,0,0]);
+                    $pdf->page_script(\'
+                        $text = "'.$pageLabel.'";
+                        $text = str_replace("{PAGE_NUM}", $PAGE_NUM, $text);
+                        $text = str_replace("{PAGE_COUNT}", $PAGE_COUNT, $text);
+                        $font = $fontMetrics->get_font("Arial, sans-serif", "bold");
+                        $size = 8;
+                        $w = $fontMetrics->get_text_width($text, $font, $size);
+                        $x = ($pdf->get_width() - $w) / 2;
+                        $y = $pdf->get_height() - 24;
+                        $pdf->text($x, $y, $text, $font, $size, [0,0,0]);
+                    \');
                 }
             </script>
         </body>

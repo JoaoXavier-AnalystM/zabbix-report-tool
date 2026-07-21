@@ -89,6 +89,9 @@ header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style
           </div>
           <div class="quick-btns">
             <button type="button" class="btn-quick" id="p-24h"><?= t('sla_time_24h') ?></button>
+            <button type="button" class="btn-quick" id="p-7d"><?= t('sla_time_7d') ?></button>
+            <button type="button" class="btn-quick" id="p-15d"><?= t('sla_time_15d') ?></button>
+            <button type="button" class="btn-quick" id="p-30d"><?= t('sla_time_30d') ?></button>
             <button type="button" class="btn-quick" id="p-1m"><?= t('sla_time_1m') ?></button>
             <button type="button" class="btn-quick" id="p-6m"><?= t('sla_time_6m') ?></button>
           </div>
@@ -191,9 +194,11 @@ header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style
     
     (function (){ const now=new Date(), from=new Date(now.getTime()-24*60*60*1000); if ($('#to_dt')) $('#to_dt').value = fmt(now); if ($('#from_dt')) $('#from_dt').value = fmt(from); })();
     
-    $('#p-24h')?.addEventListener('click', () => { const now=new Date(), from=new Date(now.getTime()-24*60*60*1000); $('#from_dt').value=fmt(from); $('#to_dt').value=fmt(now); });
-    $('#p-1m')?.addEventListener('click', () => { const now=new Date(), from=new Date(now); from.setMonth(now.getMonth()-1); $('#from_dt').value=fmt(from); $('#to_dt').value=fmt(now); });
-    $('#p-6m')?.addEventListener('click', () => { const now=new Date(), from=new Date(now); from.setMonth(now.getMonth()-6); $('#from_dt').value=fmt(from); $('#to_dt').value=fmt(now); });
+    const setQuickRange = (hours) => { const now=new Date(), from=new Date(now.getTime()-hours*3600000); $('#from_dt').value=fmt(from); $('#to_dt').value=fmt(now); };
+    $('#p-24h')?.addEventListener('click', () => setQuickRange(24));
+    $('#p-7d')?.addEventListener('click',  () => setQuickRange(168));
+    $('#p-15d')?.addEventListener('click', () => setQuickRange(360));
+    $('#p-30d')?.addEventListener('click', () => setQuickRange(720));
 
     // Enviar timezone del browser
     document.getElementById('sla-client-tz').value = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -491,9 +496,11 @@ header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style
 
 // ── Quick time buttons ────────────────────────────────────────────────────────
 const fmt2 = d => { const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
-document.getElementById('p-24h')?.addEventListener('click', () => { const n=new Date(); document.getElementById('from_dt').value=fmt2(new Date(n-86400000)); document.getElementById('to_dt').value=fmt2(n); });
-document.getElementById('p-1m')?.addEventListener('click',  () => { const n=new Date(); document.getElementById('from_dt').value=fmt2(new Date(n-2592000000)); document.getElementById('to_dt').value=fmt2(n); });
-document.getElementById('p-6m')?.addEventListener('click',  () => { const n=new Date(); document.getElementById('from_dt').value=fmt2(new Date(n-15552000000)); document.getElementById('to_dt').value=fmt2(n); });
+const quickSet = (h) => { const n=new Date(); document.getElementById('from_dt').value=fmt2(new Date(n-h*3600000)); document.getElementById('to_dt').value=fmt2(n); };
+document.getElementById('p-24h')?.addEventListener('click', () => quickSet(24));
+document.getElementById('p-7d')?.addEventListener('click',  () => quickSet(168));
+document.getElementById('p-15d')?.addEventListener('click', () => quickSet(360));
+document.getElementById('p-30d')?.addEventListener('click', () => quickSet(720));
 
 // ── Modal open/close fix para novo CSS (usa classe .open) ─────────────────────
 document.querySelectorAll('[data-close]').forEach(btn => {

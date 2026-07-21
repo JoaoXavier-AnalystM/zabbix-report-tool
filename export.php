@@ -197,8 +197,9 @@ body.dark-theme .custom-logo {
         <div class="field-hint"><?= t('export_time_range_note') ?></div>
         <div class="quick-btns">
           <button type="button" class="btn-quick" id="24h-btn"><?= t('export_last_24h') ?></button>
-          <button type="button" class="btn-quick" id="month-btn"><?= t('export_last_month','Ultimo mes') ?></button>
-          <button type="button" class="btn-quick" id="6month-btn"><?= t('export_last_6_months','Ultimos 6 meses') ?></button>
+          <button type="button" class="btn-quick" id="7d-btn"><?= t('export_last_7d') ?></button>
+          <button type="button" class="btn-quick" id="15d-btn"><?= t('export_last_15d') ?></button>
+          <button type="button" class="btn-quick" id="30d-btn"><?= t('export_last_30d') ?></button>
         </div>
         <div style="margin-top:14px">
           <div class="time-inputs">
@@ -806,7 +807,10 @@ body.dark-theme .custom-logo {
     document.getElementById('to_dt').value   = formatDate(now);
   }
 
-  document.getElementById('24h-btn').addEventListener('click',    () => setRange(24));
+  document.getElementById('24h-btn').addEventListener('click',  () => setRange(24));
+  document.getElementById('7d-btn').addEventListener('click',   () => setRange(168));
+  document.getElementById('15d-btn').addEventListener('click',  () => setRange(360));
+  document.getElementById('30d-btn').addEventListener('click',  () => setRange(720));
   document.getElementById('month-btn').addEventListener('click',  () => setRange(720));
   document.getElementById('6month-btn').addEventListener('click', () => setRange(4320));
 
@@ -1029,7 +1033,7 @@ body.dark-theme .custom-logo {
   });
 
   // Botones rapidos
-  ['24h-btn','month-btn','6month-btn'].forEach(function(id) {
+  ['24h-btn','7d-btn','15d-btn','30d-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
     btn.addEventListener('click', function() {

@@ -170,8 +170,9 @@ header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style
             </div>
             <div class="quick-btns">
               <button type="button" class="btn-quick" id="p-24h"><?= t('export_last_24h') ?></button>
-              <button type="button" class="btn-quick" id="p-1m"><?= t('export_last_month', 'Ultimo mes') ?></button>
-              <button type="button" class="btn-quick" id="p-6m"><?= t('export_last_6_months', 'Ultimos 6 meses') ?></button>
+              <button type="button" class="btn-quick" id="p-7d"><?= t('export_last_7d') ?></button>
+              <button type="button" class="btn-quick" id="p-15d"><?= t('export_last_15d') ?></button>
+              <button type="button" class="btn-quick" id="p-30d"><?= t('export_last_30d') ?></button>
             </div>
           </div>
 
@@ -298,8 +299,9 @@ function setRange(hours) {
   $('#to_dt').value   = fmt(now);
 }
 $('#p-24h')?.addEventListener('click', () => setRange(24));
-$('#p-1m')?.addEventListener('click',  () => setRange(720));
-$('#p-6m')?.addEventListener('click',  () => setRange(4320));
+$('#p-7d')?.addEventListener('click',  () => setRange(168));
+$('#p-15d')?.addEventListener('click', () => setRange(360));
+$('#p-30d')?.addEventListener('click', () => setRange(720));
 
 // ── Paginacion ────────────────────────────────────────────────────────────────
 function renderPagination(container, currentPage, totalItems, onPageClick) {
