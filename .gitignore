@@ -43,7 +43,8 @@ _*
 *.jpg
 *.jpeg
 *.png
-!.png
+!assets/*.png
+!assets/**/*.png
 
 # ── Scratch / notas ──
 var

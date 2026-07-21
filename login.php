@@ -164,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST'){
     <div class="logo-row">
       <img src="assets/unicred.svg" alt="Unicred" class="custom-logo" onerror="this.style.display='none'">
       <div class="logo-divider"></div>
-      <img src="<?= htmlspecialchars(defined('CUSTOM_LOGO_PATH') ? CUSTOM_LOGO_PATH : 'assets/Zabbix_logo.png', ENT_QUOTES, 'UTF-8') ?>" alt="Zabbix" class="custom-logo" onerror="this.style.display='none'">
+      <span class="zabbix-badge">ZABBIX</span>
     </div>
 
     <div class="login-heading"><?= t('login_heading') ?></div>
