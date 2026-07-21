@@ -164,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST'){
     <div class="logo-row">
       <img src="assets/unicred.svg" alt="Unicred" class="custom-logo" onerror="this.style.display='none'">
       <div class="logo-divider"></div>
-      <span class="zabbix-badge">ZABBIX</span>
+      <img src="assets/Zabbix_logo.png" alt="Zabbix" class="custom-logo" onerror="this.style.display='none'">
     </div>
 
     <div class="login-heading"><?= t('login_heading') ?></div>
