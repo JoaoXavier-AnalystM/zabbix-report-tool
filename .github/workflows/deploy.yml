@@ -76,3 +76,32 @@ jobs:
             chown -R deploy:www-data tmp logs vendor
             rm -rf tmp/*
             echo "Deploy completo — $(date -u)"
+
+      - name: Clear PHP Cache & Health Check
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          envs: ZBX_URL
+          script: |
+            ZBX_URL="${{ secrets.ZABBIX_URL }}"
+
+            # Limpar OPcache do PHP
+            if systemctl is-active --quiet php*-fpm; then
+              systemctl reload php*-fpm 2>/dev/null || service php*-fpm reload 2>/dev/null
+              echo "PHP-FPM recarregado"
+            elif systemctl is-active --quiet apache2; then
+              systemctl reload apache2
+              echo "Apache recarregado"
+            fi
+
+            # Health check — valida que login.php responde
+            HEALTH_URL="${ZBX_URL%/}/zabbix-report/login.php"
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" "$HEALTH_URL")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✓ Health check OK — HTTP $HTTP_CODE — $HEALTH_URL"
+            else
+              echo "✗ Health check FAIL — HTTP $HTTP_CODE — $HEALTH_URL"
+              exit 1
+            fi
