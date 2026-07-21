@@ -31,7 +31,8 @@ composer.phar
 .claude/projects/
 .remember/
 
-# ── Skills (lock é commitado, cache não) ──
+# ── Skills (estado local) ──
+skills-lock.json
 .agents/cache/
 
 # ── Auditoria de segurança ──
