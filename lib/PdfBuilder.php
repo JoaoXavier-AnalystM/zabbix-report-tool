@@ -6,7 +6,7 @@ require_once __DIR__ . '/../config.php';
 class PdfBuilder
 {
     // entries: [ ['title'=>'...', 'png'=>'/abs/path.png'], ... ]
-    public static function build(array $entries, string $outfile, $engine = 'dompdf'): void
+    public static function build(array $entries, string $outfile, string $userName = '', string $fromText = '', string $toText = '', $engine = 'dompdf'): void
     {
         if (empty($entries)) {
             throw new RuntimeException('Não há gráficos para gerar o PDF.');
@@ -28,18 +28,18 @@ class PdfBuilder
             ];
         }
 
-        $logo_path_relative = defined('CUSTOM_LOGO_PATH') ? CUSTOM_LOGO_PATH : 'assets/sonda.png';
-        $logo_path_absolute = __DIR__ . '/../' . $logo_path_relative;
-        $zabbix_logo_path = __DIR__ . '/../assets/Zabbix_logo.png';
+        $baseDir = __DIR__ . '/..';
+        $unicredLogo = $baseDir . '/assets/unicred.svg';
+        $zabbixLogo  = $baseDir . '/assets/Zabbix_logo.png';
 
-        if (!is_file($logo_path_absolute) || !is_file($zabbix_logo_path)) {
-            throw new RuntimeException('No se encontraron los archivos de logo en la carpeta assets/.');
-        }
+        $unicredB64 = is_file($unicredLogo)
+            ? 'data:image/svg+xml;base64,' . base64_encode(file_get_contents($unicredLogo))
+            : '';
+        $zabbixB64 = is_file($zabbixLogo)
+            ? 'data:image/png;base64,' . base64_encode(file_get_contents($zabbixLogo))
+            : '';
 
-        $custom_logo_b64 = 'data:image/png;base64,' . base64_encode(file_get_contents($logo_path_absolute));
-        $zabbix_logo_b64 = 'data:image/png;base64,' . base64_encode(file_get_contents($zabbix_logo_path));
-
-        $html = self::buildHtml($imgs, $custom_logo_b64, $zabbix_logo_b64);
+        $html = self::buildHtml($imgs, $unicredB64, $zabbixB64, $userName, $fromText, $toText);
 
         $eng = $engine ?: 'dompdf';
         if ($eng === 'wkhtmltopdf') {
@@ -53,12 +53,12 @@ class PdfBuilder
         }
     }
 
-    private static function buildHtml(array $imgs, string $customLogo, string $zabbixLogo): string
+    private static function buildHtml(array $imgs, string $unicredLogo, string $zabbixLogo, string $userName, string $fromText, string $toText): string
     {
         $blocks = [];
         $toc = [];
         $n = 1;
-        
+
         foreach ($imgs as $img) {
             $id = 'g'.$n++;
             $t = htmlspecialchars($img['title'], ENT_QUOTES, 'UTF-8');
@@ -93,56 +93,116 @@ class PdfBuilder
             $content .= $block['content'];
         }
 
+        $nowFormatted = date('d/m/Y H:i:s');
+        $userDisplay = htmlspecialchars($userName ?: '—', ENT_QUOTES, 'UTF-8');
+        $fromDisplay = $fromText ? htmlspecialchars($fromText, ENT_QUOTES, 'UTF-8') : '—';
+        $toDisplay   = $toText   ? htmlspecialchars($toText,   ENT_QUOTES, 'UTF-8') : '—';
+        $periodDisplay = $fromDisplay . '  →  ' . $toDisplay;
+
+        $mainTitle = t('pdf_main_title');
+        $generatedLabel = t('pdf_generated_on');
+        $authorLabel = t('pdf_author_credit');
+        $pageLabel = t('pdf_page_x_of_y');
+
         $html = '<!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
-            <title>' . t('pdf_main_title') . '</title>
+            <title>'.$mainTitle.'</title>
             <style>
-                @page { margin: 80px 50px 60px 50px; }
-                body { font-family: Arial, sans-serif; font-size: 12px; color: #333; line-height: 1.5; margin: 0; padding: 0; }
-                .header { position: fixed; top: -60px; left: 0; right: 0; height: 60px; padding: 10px 50px; display: flex; align-items: center; border-bottom: 1px solid #ddd; background: white; }
-                .header img { height: 40px; }
-                .footer { position: fixed; bottom: -40px; left: 0; right: 0; height: 30px; text-align: center; font-size: 10px; color: #666; border-top: 1px solid #ddd; display: flex; justify-content: center; align-items: center; gap: 10px; background: white; padding: 5px 0; }
-                .footer img { height: 20px; }
-                .footer .separator { color: #ccc; }
-                .chart-block { margin: 0 0 20px 0; page-break-inside: avoid; padding: 10px 0 20px 0; border-bottom: 1px solid #f0f0f0; }
-                .toc-container { margin-bottom: 30px; }
-                .toc-title { color: #1a5276; border-bottom: 2px solid #1a5276; padding-bottom: 5px; margin-bottom: 15px; }
+                @page { margin: 100px 45px 55px 45px; }
+                body { font-family: Arial, sans-serif; font-size: 11px; color: #333; line-height: 1.5; margin: 0; padding: 0; }
+
+                /* ── HEADER ── */
+                .header {
+                    position: fixed; top: -80px; left: 0; right: 0; height: 70px;
+                    padding: 8px 45px; display: flex; align-items: center;
+                    border-bottom: 2px solid #d00; background: #fff;
+                }
+                .header-logos { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+                .header-logos img { height: 28px; }
+                .header-divider { width: 1px; height: 28px; background: #ddd; }
+                .header-info {
+                    margin-left: auto; text-align: right; font-size: 9px; color: #555;
+                    line-height: 1.6; flex-shrink: 0;
+                }
+                .header-info strong { color: #222; font-size: 10px; }
+
+                /* ── FOOTER ── */
+                .footer {
+                    position: fixed; bottom: -38px; left: 0; right: 0; height: 28px;
+                    text-align: center; font-size: 8px; color: #888;
+                    border-top: 1px solid #ddd; display: flex;
+                    justify-content: center; align-items: center; gap: 8px;
+                    background: #fff; padding: 4px 0;
+                }
+                .footer img { height: 16px; }
+                .footer .sep { color: #ccc; }
+
+                /* ── CONTENT ── */
+                .cover-box {
+                    border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px;
+                    margin-bottom: 24px; background: #fafafa;
+                }
+                .cover-box h1 { font-size: 16px; color: #1a1a2e; margin: 0 0 10px 0; }
+                .cover-box .meta { font-size: 10px; color: #666; line-height: 1.8; }
+                .cover-box .meta strong { color: #333; }
+
+                .chart-block { margin: 0 0 16px 0; page-break-inside: avoid; padding: 8px 0 16px 0; border-bottom: 1px solid #f0f0f0; }
+                .toc-container { margin-bottom: 28px; }
+                .toc-title { color: #1a5276; border-bottom: 2px solid #1a5276; padding-bottom: 4px; margin-bottom: 12px; }
                 .toc-table { width: 100%; border-collapse: collapse; table-layout: auto; }
-                .toc-table td { padding: 4px 0; }
+                .toc-table td { padding: 3px 0; }
                 .toc-row { height: auto; line-height: 1; vertical-align: middle; }
                 .toc-title-cell { width: auto; padding: 2px 6px 2px 0; white-space: nowrap; word-break: keep-all; hyphens: none; overflow: hidden; text-overflow: ellipsis; }
                 .toc-dots-cell { width: 100%; overflow: hidden; }
                 .toc-dots-cell .dots { display: block; height: 0; margin: 0 4px; border-bottom: 1px dotted #9ab0be; }
-                .toc-page-cell { width: 40px; text-align: right; padding-left: 6px; white-space: nowrap; }
+                .toc-page-cell { width: 36px; text-align: right; padding-left: 4px; white-space: nowrap; }
                 .toc-link { color: #2c3e50; text-decoration: none; display: inline-block; max-width: 100%; white-space: nowrap; word-break: keep-all; hyphens: none; overflow: hidden; text-overflow: ellipsis; }
                 .toc-link:hover { color: #1a5276; text-decoration: underline; }
                 .toc-page { color: #2c3e50; font-size: 0.9em; text-align: right; }
                 .toc-page:after { content: target-counter(attr(data-target), page); }
-                .chart-title { color: #1a5276; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 15px; }
+                .chart-title { color: #1a5276; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 12px; font-size: 13px; }
                 .chart-container { width: 100%; text-align: center; }
                 .chart-image { max-width: 100%; height: auto; margin: 0 auto; display: block; }
             </style>
         </head>
         <body>
             <div class="header">
-                <img src="'.$customLogo.'" alt="Logo">
+                <div class="header-logos">
+                    <img src="'.$unicredLogo.'" alt="Unicred">
+                    <div class="header-divider"></div>
+                    <img src="'.$zabbixLogo.'" alt="Zabbix">
+                </div>
+                <div class="header-info">
+                    <strong>Usuário:</strong> '.$userDisplay.'<br>
+                    <strong>Período:</strong> '.$periodDisplay.'<br>
+                    <strong>Gerado:</strong> '.$nowFormatted.'
+                </div>
             </div>
+
             <div class="content">
-                <h1>' . t('pdf_main_title') . '</h1>
+                <div class="cover-box">
+                    <h1>'.$mainTitle.'</h1>
+                    <div class="meta">
+                        <strong>Usuário:</strong> '.$userDisplay.' &nbsp;|&nbsp;
+                        <strong>Período:</strong> '.$fromDisplay.' até '.$toDisplay.' &nbsp;|&nbsp;
+                        <strong>Gerado em:</strong> '.$nowFormatted.'
+                    </div>
+                </div>
                 '.$tocHtml.'
                 '.$content.'
             </div>
+
             <div class="footer">
-                <span>' . t('pdf_generated_on') . ' '.date('d/m/Y H:i:s').'</span>
-                <span class="separator">|</span>
-                <span>' . t('pdf_author_credit') . '</span>
-                <img src="'.$zabbixLogo.'" alt="Zabbix Logo">
+                <span>'.$generatedLabel.' '.$nowFormatted.'</span>
+                <span class="sep">|</span>
+                <span>'.$authorLabel.'</span>
+                <img src="'.$zabbixLogo.'" alt="Zabbix">
             </div>
             <script type="text/php">
                 if (isset($pdf)) {
-                    $text = "' . t('pdf_page_x_of_y') . '";
+                    $text = "'.$pageLabel.'";
                     $font = $fontMetrics->get_font("Arial, sans-serif", "normal");
                     $size = 8;
                     $y = $pdf->get_height() - 20;
@@ -160,7 +220,7 @@ class PdfBuilder
     {
         $autoload = __DIR__ . '/../vendor/autoload.php';
         if (!is_file($autoload)) {
-            throw new RuntimeException('Dompdf no esta disponible. Instala con: composer require dompdf/dompdf:^1.2');
+            throw new RuntimeException('Dompdf não está disponível. Instale com: composer require dompdf/dompdf:^1.2');
         }
         require_once $autoload;
 

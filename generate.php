@@ -428,7 +428,7 @@ if (empty($entries)) {
 
 $outfile = TMP_DIR . '/zabbix_report_' . date('Ymd_His') . '.pdf';
 try {
-    PdfBuilder::build($entries, $outfile);
+    PdfBuilder::build($entries, $outfile, $WEB_USER, $from_text, $to_text);
     header('Content-Type: application/pdf');
     header('Content-Disposition: attachment; filename="' . basename($outfile) . '"');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
