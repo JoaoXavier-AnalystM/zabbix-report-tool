@@ -105,7 +105,7 @@ class PdfBuilder
             <title>'.$mainTitle.'</title>
             <style>
                 @page { margin: 100px 45px 55px 45px; }
-                body { font-family: Arial, sans-serif; font-size: 11px; color: #333; line-height: 1.5; margin: 0; padding: 0; }
+                body { font-family: Arial, sans-serif; font-size: 11px; color: #333; line-height: 1.5; margin: 0; padding: 0; text-align: left; }
 
                 /* ── HEADER ── */
                 .header {

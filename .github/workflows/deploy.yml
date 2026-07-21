@@ -106,33 +106,3 @@ jobs:
               exit 1
             fi
 
-      - name: Visual Validation (agent-browser)
-        run: |
-          set -e
-          npm i -g agent-browser && agent-browser install
-          agent-browser open "${ZBX_URL%/}/zabbix-report/login.php" --reload
-          sleep 2
-
-          # Dimensões dos logos
-          echo "=== LOGO DIMENSIONS ===" > validate-report.txt
-          agent-browser console "const logos=document.querySelectorAll('.custom-logo'); Array.from(logos).forEach((l,i)=>console.log('Logo '+i+': '+l.offsetWidth+'x'+l.offsetHeight+' (natural:'+l.naturalWidth+'x'+l.naturalHeight+')'))" >> validate-report.txt 2>&1
-
-          # Screenshot
-          agent-browser screenshot --full validate-screenshot.png
-          echo "" >> validate-report.txt
-          echo "Screenshot: validate-screenshot.png" >> validate-report.txt
-          echo "URL: ${ZBX_URL%/}/zabbix-report/login.php" >> validate-report.txt
-          echo "Date: $(date -u)" >> validate-report.txt
-          cat validate-report.txt
-        env:
-          ZBX_URL: ${{ secrets.ZABBIX_URL }}
-
-      - name: Upload Validation Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-validation-${{ github.run_id }}
-          path: |
-            validate-report.txt
-            validate-screenshot.png
-          retention-days: 7
