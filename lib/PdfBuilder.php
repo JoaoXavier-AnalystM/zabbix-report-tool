@@ -129,10 +129,10 @@ class PdfBuilder
                 /* ── CONTENT ── */
                 .cover-box {
                     border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px;
-                    margin-bottom: 24px; background: #fafafa;
+                    margin-bottom: 24px; background: #fafafa; text-align: left;
                 }
-                .cover-box h1 { font-size: 16px; color: #1a1a2e; margin: 0 0 10px 0; }
-                .cover-box .meta { font-size: 10px; color: #666; line-height: 1.8; }
+                .cover-box h1 { font-size: 16px; color: #1a1a2e; margin: 0 0 10px 0; text-align: left; }
+                .cover-box .meta { font-size: 10px; color: #666; line-height: 1.8; text-align: left; }
                 .cover-box .meta strong { color: #333; }
 
                 .chart-block { margin: 0 0 16px 0; page-break-inside: avoid; padding: 8px 0 16px 0; border-bottom: 1px solid #f0f0f0; }
@@ -185,9 +185,9 @@ class PdfBuilder
                     $font = $fontMetrics->get_font("Arial, sans-serif", "normal");
                     $size = 7;
                     $w = $fontMetrics->get_text_width($text, $font, $size);
-                    $y = $pdf->get_height() - 16;
+                    $y = $pdf->get_height() - 28;
                     $x = ($pdf->get_width() - $w) / 2;
-                    $pdf->page_text($x, $y, $text, $font, $size, [0,0,0,0.4]);
+                    $pdf->page_text($x, $y, $text, $font, $size, [0,0,0,0.35]);
                 }
             </script>
         </body>
