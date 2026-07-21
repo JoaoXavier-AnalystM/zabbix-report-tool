@@ -141,9 +141,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST'){
 <meta name="author" content="Time M&O">
 <title><?= t('login_title') ?></title>
 <link rel="stylesheet" href="assets/css/login.css">
-<?php if (defined('APPLY_LOGO_BLEND_MODE') && APPLY_LOGO_BLEND_MODE): ?>
-<style>body.dark-theme .custom-logo { mix-blend-mode: multiply; }</style>
-<?php endif; ?>
 </head>
 <body class="dark-theme">
 
