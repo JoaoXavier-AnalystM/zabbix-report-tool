@@ -56,7 +56,7 @@ jobs:
       - name: Deploy via Rsync
         uses: burnett01/rsync-deployments@8.0.1
         with:
-          switches: -avzr --delete --exclude='.git' --exclude='.github' --exclude='tmp/*' --exclude='logs/*' --exclude='config.template.php' --exclude='composer-setup.php' --exclude='cookies.txt' --exclude='vendor/.git' --exclude='.gitignore' --exclude='security-audits'
+          switches: -avzcr --delete --exclude='.git' --exclude='.github' --exclude='tmp/*' --exclude='logs/*' --exclude='config.template.php' --exclude='composer-setup.php' --exclude='cookies.txt' --exclude='vendor/.git' --exclude='.gitignore' --exclude='security-audits'
           path: /
           remote_path: ${{ secrets.DEPLOY_PATH }}
           remote_host: ${{ secrets.SSH_HOST }}

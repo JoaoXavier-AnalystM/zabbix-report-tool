@@ -123,11 +123,10 @@ body::before {
 /* LOGO */
 .logo-row {
   display: flex; align-items: center; justify-content: center;
-  gap: 12px; margin-bottom: 28px;
+  gap: 14px; margin-bottom: 28px;
 }
-.custom-logo  { max-height: 26px; width: auto; }
-.logo-row img { object-fit: contain; }
-.logo-divider { width: 1px; height: 28px; background: var(--border); }
+.custom-logo  { height: 24px; width: auto; object-fit: contain; }
+.logo-divider { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
 .zabbix-badge {
   background: var(--red); color: #fff;
   padding: 5px 12px; border-radius: 7px;
