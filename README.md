@@ -1,108 +1,107 @@
-# Zabbix Report Tool — PDF, Excel, SLA & Maintenance Manager
+# Zabbix Report Tool — PDF, Excel, SLA & Gestor de Manutenções
 
-A PHP web application that installs alongside your existing Zabbix server and adds a modern reporting and maintenance interface. No modifications to Zabbix required.
+Aplicação PHP que se instala junto ao servidor Zabbix e adiciona uma interface moderna de relatórios e manutenções. Sem necessidade de modificar o Zabbix.
 
-**Compatible with Zabbix 6.0 · 6.4 · 7.0 · 7.4**
+**Compatível com Zabbix 6.0 · 6.4 · 7.0 · 7.4**
 
 ---
 
-## ✨ Features
+## ✨ Funcionalidades
 
-### 📄 PDF Report Generator
-- 5-step wizard: select hosts → templates → items → time range → generate
-- Inline graph preview with 6 chart types (line, area, bar, spline, step, scatter)
-- Full progress tracking during generation
+### 📄 Gerador de Relatórios PDF
+- Assistente de 5 etapas: selecione hosts → modelos → itens → período → gerar
+- Pré-visualização de gráficos com 6 tipos (linha, área, barra, spline, degrau, dispersão)
+- Barra de progresso durante a geração
 
-### 📊 Excel Export — 4 report types
-| Report | Description |
-|--------|-------------|
-| General Host List | All monitored hosts with status |
-| Detailed Host Inventory | OS, RAM, CPU min/avg/peak, memory, disks, uptime |
-| Problem Report | Alerts and events for a selected period |
-| Peaks Report | CPU and memory peak values per host |
+### 📊 Exportação Excel — 4 tipos de relatório
+| Relatório | Descrição |
+|-----------|-----------|
+| Lista Geral de Hosts | Todos os hosts monitorados com status |
+| Inventário Detalhado | SO, RAM, CPU mín/méd/pico, memória, discos, uptime |
+| Relatório de Problemas | Alertas e eventos do período selecionado |
+| Relatório de Picos | Valores de pico de CPU e memória por host |
 
-### 📈 SLA Compliance Report
-- ICMP-based availability calculated from **trigger events** (not just ping checks)
-- Shows real SLA%, total downtime, and every incident with start/end/duration
-- Export to HTML view or CSV
-- Multi-version compatible (6.0 through 7.4)
+### 📈 Relatório de SLA
+- Disponibilidade baseada em **eventos de trigger ICMP** (não apenas ping)
+- Exibe SLA% real, tempo total de inatividade e cada incidente com início/fim/duração
+- Exporta para visualização HTML ou CSV
+- Compatível com Zabbix 6.0 a 7.4
 
-### 🔧 Maintenance Manager
-- List all maintenances with live status (Active / Scheduled / Expired)
-- Create maintenances with full schedule support:
-  - One-time, Daily, Weekly, Monthly
-  - Monthly supports **Day of month** and **Day of week** modes (identical to Zabbix UI)
-- Add hosts to existing maintenances
-- Export host lists per maintenance to CSV
-- Host autocomplete search
+### 🔧 Gestor de Manutenções
+- Lista de manutenções com status em tempo real (Ativa / Programada / Expirada)
+- Criação de manutenções com agendamento completo:
+  - Única, Diária, Semanal, Mensal
+  - Modo mensal com **Dia do mês** e **Dia da semana** (igual à interface do Zabbix)
+- Adicionar hosts a manutenções existentes
+- Exportar lista de hosts por manutenção para CSV
+- Busca de hosts com autocompletar
 
-### 🖥️ Latest Data Explorer
-- Browse and filter all monitored items across hosts and groups
-- Real-time autocomplete for hosts and groups
-- Paginated table with inline filtering
-- One-click export to PDF
+### 🖥️ Explorador de Dados Recentes
+- Navegar e filtrar todos os itens monitorados por hosts e grupos
+- Autocompletar em tempo real para hosts e grupos
+- Tabela paginada com filtro inline
+- Exportação para PDF com um clique
 
 ---
 
 ## 🎨 Interface
 
-- Modern dark/light theme with persistent preference
-- Custom background image support
-- Fully responsive
-- Bilingual: **English / Portuguese (Brazil)**
-- Sticky topbar with glassmorphism cards
+- Temas claro/escuro modernos com preferência persistente
+- Suporte a imagem de fundo personalizada
+- Totalmente responsivo
+- Bilíngue: **Português (Brasil) / Inglês**
+- Topbar fixa com cards em glassmorphism
 
 ---
 
-## 🔒 Security
+## 🔒 Segurança
 
-- Session-based authentication via Zabbix API
-- CSRF protection on all forms
-- No data stored outside your Zabbix database
+- Autenticação via API do Zabbix com token (senha não é armazenada em sessão)
+- Proteção CSRF em todos os formulários
+- Dados permanecem apenas no banco de dados do Zabbix
 
 ---
 
-## 📚 Installation
+## 📚 Instalação
 
-### Requirements
-- PHP 7.2 or higher
-- PHP extensions: curl, gd, json, mbstring, xml, zip, zlib, fileinfo
-- Composer (for dompdf dependency)
-- Write permissions on `tmp/` and `logs/` directories
+### Requisitos
+- PHP 7.2 ou superior
+- Extensões PHP: curl, gd, json, mbstring, xml, zip, zlib, fileinfo
+- Composer (para dependência dompdf)
+- Permissão de escrita nos diretórios `tmp/` e `logs/`
 
-### Quick Setup
+### Configuração Rápida
 
-1. Copy the project folder to a directory accessible by your web server (e.g., `/var/www/html/zabbix-report/`)
+1. Copie a pasta do projeto para um diretório acessível pelo servidor web (ex: `/var/www/html/zabbix-report/`)
 
-2. Create `config.php` from the example:
+2. Crie o `config.php` a partir do template:
    ```bash
-   cp config.php.example config.php
+   cp config.template.php config.php
    ```
 
-3. Edit `config.php` and set your Zabbix URL and API credentials:
+3. Edite o `config.php` e defina a URL do Zabbix e o fuso horário:
    ```php
-   define('ZABBIX_URL', 'http://your-zabbix-server/zabbix');
-   define('ZABBIX_API_USER', 'api_user');
-   define('ZABBIX_API_PASS', 'api_password');
+   define('ZABBIX_URL', 'http://seu-servidor-zabbix/zabbix');
+   define('ZABBIX_TZ', 'America/Sao_Paulo');
    ```
 
-4. Install Composer dependencies:
+4. Instale as dependências do Composer:
    ```bash
    composer install --no-dev --optimize-autoloader
    ```
 
-5. Access `login.php` from your browser.
+5. Acesse `login.php` pelo navegador.
 
-### Optional: Add to Zabbix menu
+### Opcional: Adicionar ao menu do Zabbix
 
-Edit `/usr/share/zabbix/include/classes/helpers/CMenuHelper.php`, find:
+Edite `/usr/share/zabbix/include/classes/helpers/CMenuHelper.php`, encontre:
 ```php
 $submenu_reports = array_filter($submenu_reports);
 ```
-Add above it:
+Adicione acima:
 ```php
 $submenu_reports[] = CWebUser::checkAccess(CRoleHelper::UI_REPORTS_SYSTEM_INFO)
-    ? (new CMenuItem(_('PDF Report')))
+    ? (new CMenuItem(_('Relatório PDF')))
           ->setUrl(new CUrl('zabbix-report/login.php'), true)
           ->setId('report_pdf')
           ->setAliases(['zabbix-report/chooser.php'])
@@ -111,14 +110,14 @@ $submenu_reports[] = CWebUser::checkAccess(CRoleHelper::UI_REPORTS_SYSTEM_INFO)
 
 ### LDAP / Active Directory
 
-Set prefix/suffix in `config.php` if your Zabbix uses LDAP:
+Configure prefixo/sufixo no `config.php` se seu Zabbix usa LDAP:
 ```php
-define('ZBX_USER_PREFIX', 'DOMAIN\\');   // Active Directory
-define('ZBX_USER_SUFFIX', '@domain.local');  // Email UPN
+define('ZBX_USER_PREFIX', 'DOMINIO\\');    // Active Directory
+define('ZBX_USER_SUFFIX', '@dominio.local'); // Email UPN
 ```
 
 ---
 
-## 🌐 Language Support
+## 🌐 Idiomas
 
-English and Portuguese (Brazil) included. Add new languages by creating `lang/XX.php` and adding the code to `SUPPORTED_LANGS` in `lib/i18n.php`.
+Português (Brasil) e Inglês já inclusos. Para adicionar novos idiomas, crie `lang/XX.php` e adicione o código em `SUPPORTED_LANGS` no arquivo `lib/i18n.php`.
