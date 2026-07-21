@@ -5,7 +5,7 @@ vendor/
 config.php
 .env
 *.env
-
+*.pdf
 # ── Credenciais / segredos ──
 credenciais
 credentials*

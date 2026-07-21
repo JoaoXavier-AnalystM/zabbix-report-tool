@@ -30,11 +30,16 @@ class PdfBuilder
 
         $baseDir = __DIR__ . '/..';
         $zabbixLogo  = $baseDir . '/assets/Zabbix_logo.png';
+        $unicredSvg  = $baseDir . '/assets/unicred.svg';
+
         $zabbixB64 = is_file($zabbixLogo)
             ? 'data:image/png;base64,' . base64_encode(file_get_contents($zabbixLogo))
             : '';
+        $unicredSvgInline = is_file($unicredSvg)
+            ? file_get_contents($unicredSvg)
+            : '';
 
-        $html = self::buildHtml($imgs, $zabbixB64, $userName, $fromText, $toText);
+        $html = self::buildHtml($imgs, $zabbixB64, $unicredSvgInline, $userName, $fromText, $toText);
 
         $eng = $engine ?: 'dompdf';
         if ($eng === 'wkhtmltopdf') {
@@ -48,7 +53,7 @@ class PdfBuilder
         }
     }
 
-    private static function buildHtml(array $imgs, string $zabbixLogo, string $userName, string $fromText, string $toText): string
+    private static function buildHtml(array $imgs, string $zabbixLogo, string $unicredSvg, string $userName, string $fromText, string $toText): string
     {
         $blocks = [];
         $toc = [];
@@ -110,18 +115,14 @@ class PdfBuilder
 
                 /* ── HEADER ── */
                 .header {
-                    position: fixed; top: -80px; left: 0; right: 0; height: 70px;
-                    padding: 8px 45px; display: flex; align-items: center;
+                    position: fixed; top: -80px; left: 0; right: 0; height: 60px;
+                    padding: 8px 45px; display: flex; align-items: center; justify-content: space-between;
                     border-bottom: 2px solid #d00; background: #fff;
                 }
-                .header-logos { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-                .header-logos img { height: 28px; }
-                .header-divider { width: 1px; height: 28px; background: #ddd; }
-                .header-info {
-                    margin-left: auto; text-align: right; font-size: 9px; color: #555;
-                    line-height: 1.6; flex-shrink: 0;
-                }
-                .header-info strong { color: #222; font-size: 10px; }
+                .header-left img { height: 26px; }
+                .header-center { text-align: center; font-size: 8px; color: #555; line-height: 1.7; flex: 1; }
+                .header-center strong { color: #222; font-size: 9px; }
+                .header-right svg { height: 22px; width: auto; }
 
                 /* ── FOOTER ── */
                 .footer {
@@ -164,13 +165,15 @@ class PdfBuilder
         </head>
         <body>
             <div class="header">
-                <div class="header-logos">
+                <div class="header-left">
                     <img src="'.$zabbixLogo.'" alt="Zabbix">
                 </div>
-                <div class="header-info">
+                <div class="header-center">
                     <strong>Usuário:</strong> '.$userDisplay.'<br>
-                    <strong>Período:</strong> '.$periodDisplay.'<br>
                     <strong>Gerado:</strong> '.$nowFormatted.'
+                </div>
+                <div class="header-right">
+                    '.$unicredSvg.'
                 </div>
             </div>
 
