@@ -1,0 +1,49 @@
+# ── Dependências ──
+vendor/
+
+# ── Configuração sensível ──
+config.php
+.env
+*.env
+
+# ── Credenciais / segredos ──
+credenciais
+credentials*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ── Sessão e cache ──
+tmp/*
+logs/*
+*.log
+cookies.txt
+cj
+
+# ── Composer ──
+composer-setup.php
+composer.phar
+
+# ── Claude Code (estado local) ──
+.claude/settings.local.json
+.claude/projects/
+.remember/
+
+# ── Skills (lock é commitado, cache não) ──
+.agents/cache/
+
+# ── Auditoria de segurança ──
+security-audits/
+
+# ── Preview / debug ──
+_*
+*.jpg
+*.jpeg
+*.png
+!.png
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+desktop.ini

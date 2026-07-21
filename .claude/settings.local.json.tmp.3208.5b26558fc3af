@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Move-Item *)",
+      "PowerShell(Start-Process \"D:\\\\homelab\\\\zabbix-report\\\\_preview-login.html\")",
+      "Bash(npx skills *)",
+      "Skill(security-reviewer)",
+      "Bash(git init *)",
+      "Bash(gh auth *)",
+      "PowerShell(gh auth *)",
+      "Bash(git add *)",
+      "Bash(git commit -m '@ *)"
+    ]
+  }
+}

@@ -1,0 +1,81 @@
+name: Deploy to Zabbix Server
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      skip_composer:
+        description: 'Skip composer install'
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connect Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: curl, gd, json, mbstring, xml, zip, fileinfo
+          tools: composer:v2
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Composer Install
+        if: ${{ !inputs.skip_composer }}
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      - name: Validate PHP Syntax
+        run: |
+          find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
+
+      - name: Generate config.php
+        run: |
+          cp config.template.php config.php
+          sed -i "s|{{ZABBIX_URL}}|${{ secrets.ZABBIX_URL }}|" config.php
+          sed -i "s|{{ZABBIX_TZ}}|${{ secrets.ZABBIX_TZ }}|" config.php
+          sed -i "s|{{ZBX_USER_PREFIX}}|${{ secrets.ZBX_USER_PREFIX }}|" config.php
+          sed -i "s|{{ZBX_USER_SUFFIX}}|${{ secrets.ZBX_USER_SUFFIX }}|" config.php
+
+      - name: Deploy via Rsync
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          switches: -avzr --delete --exclude='.git' --exclude='.github' --exclude='tmp/*' --exclude='logs/*' --exclude='config.template.php' --exclude='composer-setup.php' --exclude='cookies.txt' --exclude='vendor/.git' --exclude='.gitignore' --exclude='security-audits'
+          path: /
+          remote_path: ${{ secrets.DEPLOY_PATH }}
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_user: ${{ secrets.SSH_USER }}
+          remote_key: ${{ secrets.SSH_KEY }}
+
+      - name: Post-deploy Setup
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            mkdir -p tmp logs
+            chmod 750 tmp logs
+            chown -R www-data:www-data tmp logs vendor
+            rm -rf tmp/*
+            echo "Deploy completo — $(date -u)"

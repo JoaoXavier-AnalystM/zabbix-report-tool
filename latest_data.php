@@ -1,0 +1,1438 @@
+<?php
+declare(strict_types=1);
+
+session_start();
+if (empty($_SESSION['zbx_auth_ok'])) {
+    if (isset($_GET['action'])) { header('Content-Type: application/json'); echo json_encode(['error'=>'session']); exit; }
+    header('Location: login.php'); exit;
+}
+
+require_once __DIR__ . '/lib/i18n.php';
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/lib/ZabbixApiFactory.php';
+
+try {
+    $api = ZabbixApiFactory::createWithAuth(ZABBIX_API_URL, $_SESSION['zbx_api_token'], ['timeout'=>45]);
+} catch (Throwable $e) {
+    if (isset($_GET['action'])) { header('Content-Type: application/json'); echo json_encode(['error'=>$e->getMessage()]); exit; }
+    header('Location: login.php'); exit;
+}
+
+if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+$csrf_token = $_SESSION['csrf_token'];
+
+// Endpoint para regenerar CSRF token sin recargar la pagina
+if (isset($_GET['action']) && $_GET['action'] === 'new_csrf') {
+    header('Content-Type: application/json');
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    echo json_encode(['token' => $_SESSION['csrf_token']]);
+    exit;
+}
+
+// Endpoint para obtener historial de un item (para preview de grafico)
+if (isset($_GET['action']) && $_GET['action'] === 'item_history') {
+    header('Content-Type: application/json');
+    $itemid    = ctype_digit($_GET['itemid'] ?? '') ? $_GET['itemid'] : null;
+    $value_type= in_array($_GET['vtype'] ?? '', ['0','1','2','3','4']) ? (int)$_GET['vtype'] : 0;
+    $from      = ctype_digit($_GET['from'] ?? '') ? (int)$_GET['from'] : strtotime('-24 hours');
+    $till      = ctype_digit($_GET['till'] ?? '') ? (int)$_GET['till'] : time();
+    if (!$itemid) { echo json_encode(['error'=>'no itemid']); exit; }
+    // Decidir tabla de historial segun value_type
+    // 0=float, 3=uint -> trends si rango > 7 dias, history si menor
+    $range_days = ($till - $from) / 86400;
+    $use_trends = $range_days > 7 && in_array($value_type, [0, 3]);
+    if ($use_trends) {
+        $data = $api->call('trend.get', [
+            'output'    => ['clock','value_avg','value_min','value_max'],
+            'itemids'   => [$itemid],
+            'time_from' => $from,
+            'time_till' => $till,
+            'limit'     => 500,
+        ]);
+        $points = [];
+        if (is_array($data)) foreach ($data as $d) {
+            $points[] = ['t' => (int)$d['clock'], 'v' => (float)$d['value_avg']];
+        }
+    } else {
+        try {
+            $data = $api->call('history.get', [
+                'output'    => ['clock','value'],
+                'itemids'   => [$itemid],
+                'history'   => $value_type,
+                'time_from' => $from,
+                'time_till' => $till,
+                'sortfield' => 'clock',
+                'sortorder' => 'ASC',
+                'limit'     => 500,
+            ]);
+        } catch (Throwable $e) {
+            echo json_encode(['error' => $e->getMessage(), 'points' => []]);
+            exit;
+        }
+        $points = [];
+        if (is_array($data)) foreach ($data as $d) {
+            $v = is_numeric($d['value']) ? (float)$d['value'] : $d['value'];
+            $points[] = ['t' => (int)$d['clock'], 'v' => $v];
+        }
+    }
+    $result = [
+        'points'     => $points,
+        'trends'     => $use_trends,
+        'count'      => count($points),
+        'vtype'      => $value_type,
+        'from'       => $from,
+        'till'       => $till,
+        'range_days' => $range_days,
+        'api_error'  => is_array($data) ? null : $data,
+    ];
+    echo json_encode($result);
+    exit;
+}
+
+if (!isset($_GET['action'])) {
+    header('Content-Type: text/html; charset=utf-8');
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net;");
+}
+
+// ── AJAX: refresh de datos ────────────────────────────────────────────────────
+if (isset($_GET['action']) && $_GET['action'] === 'refresh') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $hostids   = array_filter(explode(',', $_GET['hostids']   ?? ''), 'ctype_digit');
+    $groupids  = array_filter(explode(',', $_GET['groupids']  ?? ''), 'ctype_digit');
+    $name      = trim($_GET['name'] ?? '');
+    $sort      = in_array($_GET['sort'] ?? '', ['host','name']) ? $_GET['sort'] : 'name';
+    $sortorder = ($_GET['sortorder'] ?? '') === 'DESC' ? 'DESC' : 'ASC';
+
+    // Resolver hosts
+    $host_params = ['output' => ['hostid','name','status'], 'preservekeys' => true];
+    if ($hostids)  $host_params['hostids']  = $hostids;
+    if ($groupids) $host_params['groupids'] = $groupids;
+    if (!$hostids && !$groupids && $name === '') {
+        echo json_encode(['items'=>[],'total'=>0,'hosts'=>[]]);
+        exit;
+    }
+    $hosts = $api->call('host.get', $host_params);
+    if (!is_array($hosts) || empty($hosts)) {
+        echo json_encode(['items'=>[],'total'=>0,'hosts'=>[]]);
+        exit;
+    }
+
+    // Obter itens em LOTES de 20 hosts para evitar timeout em instalações grandes
+    // Uma única chamada com 200+ hosts pode demorar mais de 45s — lotes pequenos são rápidos
+    $all_host_ids = array_keys($hosts);
+    $batch_size   = 20;
+    $chunks       = array_chunk($all_host_ids, $batch_size);
+    $items        = [];
+
+    foreach ($chunks as $chunk) {
+        $item_params = [
+            'output'       => ['itemid','hostid','name','key_','lastvalue','lastclock','value_type','units','delay','state'],
+            'hostids'      => $chunk,
+            'filter'       => ['status' => 0],
+            'preservekeys' => true,
+            'webitems'     => true,
+        ];
+        if ($name !== '') {
+            $item_params['search']                = ['name' => $name];
+            $item_params['searchWildcardsEnabled']= true;
+        }
+        $batch = $api->call('item.get', $item_params);
+        if (is_array($batch)) {
+            $items = array_merge($items, $batch);
+        }
+    }
+
+    // Ordenar
+    if ($sort === 'host') {
+        usort($items, function($a, $b) use ($hosts, $sortorder) {
+            $ha = $hosts[$a['hostid']]['name'] ?? '';
+            $hb = $hosts[$b['hostid']]['name'] ?? '';
+            $c  = strcasecmp($ha, $hb);
+            return $sortorder === 'DESC' ? -$c : $c;
+        });
+    } else {
+        usort($items, function($a, $b) use ($sortorder) {
+            $c = strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+            return $sortorder === 'DESC' ? -$c : $c;
+        });
+    }
+
+    // Formatear valores
+    $result = [];
+    foreach ($items as $item) {
+        $host  = $hosts[$item['hostid']] ?? null;
+        $val   = $item['lastvalue'];
+        $clock = (int)$item['lastclock'];
+        $result[] = [
+            'itemid'    => $item['itemid'],
+            'hostid'    => $item['hostid'],
+            'host'      => $host ? $host['name'] : '',
+            'name'      => $item['name'],
+            'key_'      => $item['key_'],
+            'lastvalue' => formatValue($val, (int)$item['value_type'], $item['units']),
+            'rawvalue'  => $val,
+            'lastclock' => $clock,
+            'ago'       => $clock > 0 ? formatAge(time() - $clock) : '—',
+            'units'     => $item['units'],
+            'state'     => (int)$item['state'],
+        ];
+    }
+
+    echo json_encode(['items'=>$result,'total'=>count($result),'hosts'=>array_values($hosts)]);
+    exit;
+}
+
+// ── AJAX: lista de hosts/grupos para filtros ──────────────────────────────────
+if (isset($_GET['action']) && $_GET['action'] === 'list_hosts') {
+    header('Content-Type: application/json; charset=utf-8');
+    $q = trim($_GET['q'] ?? '');
+    $params = ['output'=>['hostid','name'],'sortfield'=>'name','limit'=>50];
+    if ($q) {
+        $params['search'] = ['name' => '*'.$q.'*'];
+        $params['searchWildcardsEnabled'] = true;
+    }
+    $r = $api->call('host.get', $params);
+    echo json_encode(is_array($r) ? $r : []);
+    exit;
+}
+if (isset($_GET['action']) && $_GET['action'] === 'list_groups') {
+    header('Content-Type: application/json; charset=utf-8');
+    $q = trim($_GET['q'] ?? '');
+    $params = ['output'=>['groupid','name'],'sortfield'=>'name','limit'=>50];
+    if ($q) {
+        $params['search'] = ['name' => '*'.$q.'*'];
+        $params['searchWildcardsEnabled'] = true;
+    }
+    $r = $api->call('hostgroup.get', $params);
+    echo json_encode(is_array($r) ? $r : []);
+    exit;
+}
+if (isset($_GET['action']) && $_GET['action'] === 'list_items') {
+    header('Content-Type: application/json; charset=utf-8');
+    $q = trim($_GET['q'] ?? '');
+    if ($q === '') { echo json_encode([]); exit; }
+    // Filtrar por hosts/grupos seleccionados si vienen
+    $hostids  = array_filter(explode(',', $_GET['hostids']  ?? ''), 'ctype_digit');
+    $groupids = array_filter(explode(',', $_GET['groupids'] ?? ''), 'ctype_digit');
+    $params = [
+        'output'                 => ['itemid','name','key_','hostid'],
+        'selectHosts'            => ['hostid','name'],
+        'search'                 => ['name' => '*'.$q.'*'],
+        'searchWildcardsEnabled' => true,
+        'filter'                 => ['status' => 0],
+        'sortfield'              => 'name',
+        'limit'                  => 20,
+    ];
+    if ($hostids)  $params['hostids']  = $hostids;
+    if ($groupids) $params['groupids'] = $groupids;
+    $r = $api->call('item.get', $params);
+    if (!is_array($r)) { echo json_encode([]); exit; }
+    // Remover duplicados por nome (mesmo item em vários hosts)
+    $seen = []; $result = [];
+    foreach ($r as $item) {
+        if (!isset($seen[$item['name']])) {
+            $seen[$item['name']] = true;
+            $result[] = ['name' => $item['name'], 'key_' => $item['key_']];
+        }
+    }
+    echo json_encode($result);
+    exit;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function formatAge(int $secs): string {
+    if ($secs < 0) return 'just now';
+    if ($secs < 60) return $secs . 's ago';
+    if ($secs < 3600) return floor($secs/60) . 'm ago';
+    if ($secs < 86400) return floor($secs/3600) . 'h ago';
+    return floor($secs/86400) . 'd ago';
+}
+
+function formatValue(?string $val, int $type, string $units): string {
+    if ($val === null || $val === '') return '—';
+    // Numeric types: 0=float, 3=uint64
+    if (in_array($type, [0, 3])) {
+        $n = (float)$val;
+        $u = trim($units);
+        // Convert bytes
+        if (in_array($u, ['B','b'])) {
+            if ($n >= 1073741824) return round($n/1073741824, 2) . ' GB';
+            if ($n >= 1048576)    return round($n/1048576, 2) . ' MB';
+            if ($n >= 1024)       return round($n/1024, 2) . ' KB';
+            return $n . ' B';
+        }
+        $formatted = $n == floor($n) ? (int)$n : round($n, 4);
+        return $formatted . ($u ? ' '.$u : '');
+    }
+    // String/text/log: truncate
+    return mb_strlen($val) > 80 ? mb_substr($val, 0, 80) . '…' : $val;
+}
+?>
+<!DOCTYPE html>
+<html lang="<?= htmlspecialchars($current_lang, ENT_QUOTES, 'UTF-8') ?>">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zabbix Report — Export</title>
+<link rel="stylesheet" href="assets/css/export.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+/* ── Export page styles ── */
+
+/* BACKGROUND IMAGE - editar ruta si es necesario */
+body {
+  background-image: url('assets/background/bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0;
+  background: rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+.topbar, .wrap > *, header {
+  position: relative; z-index: 1;
+}
+
+
+.ld-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px;
+  background: var(--card2); border-bottom: 1px solid var(--divider);
+  flex-wrap: wrap;
+}
+.ld-search {
+  flex: 1; min-width: 180px; max-width: 320px;
+  padding: 8px 12px;
+  background: var(--input-bg); border: 1.5px solid var(--input-border);
+  border-radius: 8px; color: var(--text); font-family: var(--mono);
+  font-size: 12.5px; outline: none;
+  transition: border-color .15s;
+}
+.ld-search:focus { border-color: var(--red); }
+.ld-search::placeholder { color: var(--text3); font-style: italic; }
+
+.filter-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 500;
+  background: var(--red-a10); color: var(--red);
+  border: 1px solid var(--red-a30); cursor: pointer;
+  transition: background .15s;
+}
+.filter-tag:hover { background: var(--red); color: #fff; }
+.filter-tag .x { font-size: 14px; line-height: 1; }
+
+.ld-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 8px;
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; transition: all .15s;
+  white-space: nowrap;
+}
+.ld-btn-primary { background: var(--red); color: #fff; }
+.ld-btn-primary:hover { background: var(--red-h); }
+.ld-btn-ghost {
+  background: var(--card2); color: var(--text2);
+  border: 1.5px solid var(--divider);
+}
+.ld-btn-ghost:hover { border-color: var(--red); color: var(--red); }
+.ld-btn-green { background: var(--green); color: #fff; }
+.ld-btn-green:hover { filter: brightness(1.1); }
+.ld-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Table */
+.ld-table-wrap { overflow-x: auto; }
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px;
+}
+thead th {
+  padding: 10px 14px; text-align: left;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text3);
+  border-bottom: 2px solid var(--divider);
+  background: var(--card2);
+  white-space: nowrap; cursor: pointer; user-select: none;
+}
+thead th:hover { color: var(--text); }
+thead th.sorted { color: var(--red); }
+thead th .sort-arrow { margin-left: 4px; opacity: .6; }
+tbody tr {
+  border-bottom: 1px solid var(--divider);
+  transition: background .1s;
+}
+tbody tr:hover { background: var(--step-hover); }
+tbody tr.selected { background: var(--red-a10); }
+tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
+tbody td.td-host { color: var(--text2); font-weight: 500; }
+tbody td.td-name { font-weight: 500; }
+tbody td.td-key  { font-family: var(--mono); font-size: 11px; color: var(--text3); }
+tbody td.td-val  { font-family: var(--mono); font-weight: 600; }
+tbody td.td-val.has-val { color: var(--text); }
+tbody td.td-val.no-val  { color: var(--text3); font-style: italic; }
+tbody td.td-ago  { font-family: var(--mono); font-size: 11.5px; color: var(--text3); white-space: nowrap; }
+tbody td.td-state .state-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 700;
+}
+.state-ok   { background: rgba(22,163,74,.12); color: var(--green); border: 1px solid rgba(22,163,74,.3); }
+.state-err  { background: rgba(224,60,60,.12); color: var(--red);   border: 1px solid rgba(224,60,60,.3); }
+
+/* Checkbox col */
+.td-check input { accent-color: var(--red); width: 15px; height: 15px; cursor: pointer; }
+thead th.th-check { width: 40px; }
+
+/* Footer bar */
+.ld-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; border-top: 1px solid var(--divider);
+  background: var(--card2); gap: 12px; flex-wrap: wrap;
+}
+.ld-selection-info { font-size: 13px; color: var(--text2); }
+.ld-selection-info b { color: var(--text); }
+.ld-pagination { display: flex; gap: 4px; align-items: center; }
+.pg-btn {
+  padding: 5px 11px; border-radius: 6px; font-size: 12px; font-family: var(--mono);
+  cursor: pointer; border: 1px solid var(--divider); background: var(--card2);
+  color: var(--text2); transition: all .14s;
+}
+.pg-btn:hover { border-color: var(--red); color: var(--red); }
+.pg-btn.active { background: var(--red); border-color: var(--red); color: #fff; }
+.pg-btn:disabled { opacity: .35; cursor: not-allowed; }
+.pg-info { font-size: 12px; color: var(--text3); font-family: var(--mono); padding: 0 6px; }
+
+/* Empty / loading */
+.ld-empty {
+  text-align: center; padding: 60px 20px;
+  color: var(--text3); font-size: 14px;
+}
+.ld-empty svg { margin-bottom: 12px; opacity: .3; }
+.ld-spinner {
+  display: inline-block; width: 18px; height: 18px;
+  border: 2.5px solid var(--divider); border-top-color: var(--red);
+  border-radius: 50%; animation: spin .7s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Export modal */
+.export-modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(6px);
+  align-items: center; justify-content: center;
+}
+.export-modal-overlay.open { display: flex; }
+.export-modal {
+  background: var(--card); border: 1px solid var(--divider);
+  border-radius: 14px; padding: 28px; min-width: 340px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.5);
+  animation: mIn .18s ease;
+}
+.export-modal h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+.export-modal .em-sub { font-size: 13px; color: var(--text2); margin-bottom: 20px; }
+.export-modal .em-row { display: flex; gap: 10px; }
+.em-btn {
+  flex: 1; padding: 12px; border-radius: 8px; border: none;
+  font-family: var(--font); font-weight: 600; font-size: 14px;
+  cursor: pointer; text-align: center; text-decoration: none;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: filter .15s, transform .15s;
+}
+.em-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.em-pdf   { background: var(--red); color: #fff; }
+.em-excel { background: var(--green); color: #fff; }
+.em-cancel { background: var(--card2); color: var(--text2); border: 1.5px solid var(--divider); flex: 0; padding: 10px 18px; }
+.em-cancel:hover { border-color: var(--red); color: var(--red); filter: none; transform: none; }
+
+/* Time range in toolbar */
+.ld-range { display: flex; align-items: center; gap: 6px; }
+.ld-range input {
+  padding: 7px 10px; font-size: 12px; font-family: var(--mono);
+  background: var(--input-bg); border: 1.5px solid var(--input-border);
+  border-radius: 8px; color: var(--text); outline: none; width: 170px;
+}
+.ld-range input:focus { border-color: var(--red); }
+.ld-range-sep { color: var(--text3); font-size: 14px; }
+
+/* Tag pill unsupported */
+.pill-unsupported { background: rgba(224,60,60,.1); color: var(--red); border-radius: 4px; padding: 1px 6px; font-size: 11px; }
+
+@media (max-width: 768px) {
+  .ld-toolbar { flex-direction: column; align-items: stretch; }
+  .ld-search { max-width: 100%; }
+  .ld-range { flex-wrap: wrap; }
+}
+
+/* Preview modal */
+/* ── Thumbnail ── */
+.zbx-thumb-wrap{width:120px;height:42px;position:relative;cursor:pointer;border-radius:6px;overflow:hidden;background:var(--card2);border:1px solid var(--divider);transition:border-color .15s}
+.zbx-thumb-wrap:hover{border-color:rgba(224,60,60,.5)}
+.zbx-thumb-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.zbx-thumb-spinner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--card2)}
+.preview-overlay {
+  display:none; position:fixed; inset:0; z-index:3000;
+  background:rgba(0,0,0,.65); backdrop-filter:blur(8px);
+  align-items:center; justify-content:center;
+}
+.preview-overlay.open { display:flex; }
+.preview-modal {
+  background:var(--card); border:1px solid var(--divider);
+  border-radius:16px; padding:24px;
+  width:90%; max-width:820px;
+  box-shadow:0 24px 64px rgba(0,0,0,.5);
+  animation: mIn .18s ease;
+}
+.preview-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:16px; gap:12px; }
+.preview-title { font-size:15px; font-weight:700; color:var(--text); }
+.preview-host  { font-size:12px; color:var(--text2); margin-top:2px; font-family:var(--mono); }
+.chart-type-bar { display:none !important; }
+.chart-type-btn {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:6px 12px; border-radius:8px; cursor:pointer;
+  font-size:12px; font-weight:600; font-family:var(--font);
+  border:1.5px solid var(--divider); background:var(--card2); color:var(--text2);
+  transition:all .15s;
+}
+.chart-type-btn:hover { border-color:var(--red); color:var(--red); }
+.chart-type-btn.active { background:var(--red); border-color:var(--red); color:#fff; }
+.chart-canvas-wrap {
+  position:relative; height:480px;
+  background:var(--card2); border-radius:10px; padding:12px;
+  border:1px solid var(--divider);
+}
+.preview-range {
+  display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;
+}
+.preview-range input {
+  padding:6px 10px; font-size:12px; font-family:var(--mono);
+  background:var(--input-bg); border:1.5px solid var(--input-border);
+  border-radius:8px; color:var(--text); outline:none; width:175px;
+}
+.preview-range input:focus { border-color:var(--red); }
+.preview-range-btn {
+  padding:5px 11px; border-radius:7px; font-size:12px; font-weight:600;
+  font-family:var(--font); cursor:pointer;
+  border:1.5px solid var(--divider); background:var(--card2); color:var(--text2);
+  transition:all .15s;
+}
+.preview-range-btn:hover { border-color:var(--red); color:var(--red); }
+.preview-footer { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+.preview-loading {
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  background:var(--card2); border-radius:10px; z-index:10;
+}
+.preview-nodata {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  color:var(--text3); font-size:13px; gap:8px;
+}
+</style>
+</head>
+<body class="dark-theme">
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <a href="latest_data.php" class="topbar-brand">
+    <?php if (defined('CUSTOM_LOGO_PATH')): ?><img src="<?= htmlspecialchars(CUSTOM_LOGO_PATH,ENT_QUOTES,'UTF-8') ?>" alt="Logo" class="custom-logo" onerror="this.style.display='none'">><?php endif; ?>
+    <span class="zabbix-logo">ZABBIX</span>
+    <span class="topbar-name">Report</span>
+  </a>
+  <span class="topbar-sep">|</span>
+  <span class="topbar-sub">Export</span>
+  <a href="export-excel/excel_export.php" class="btn-top" style="background:var(--green,#16a34a);color:#fff;border-color:var(--green,#16a34a);text-decoration:none" target="_blank" rel="noopener">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+    Excel
+  </a>
+  <a href="maintenances/" class="btn-top" style="background:#d97706;color:#fff;border-color:#d97706;text-decoration:none" target="_blank" rel="noopener">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+    <?= t('maintenances_button', 'Mantenciones') ?>
+  </a>
+  <div class="topbar-spacer"></div>
+  <div class="topbar-actions">
+    <button id="theme-toggle" class="btn-top">&#9788; Light</button>
+    <a href="logout.php" class="btn-top danger">&#8594; <?= t('logout_button','Logout') ?></a>
+  </div>
+</header>
+
+<div style="max-width:1400px;margin:0 auto;padding:24px 20px 60px;position:relative;z-index:1">
+
+  <!-- FILTER BAR -->
+  <div style="background:var(--card);border:1px solid var(--divider);border-radius:14px;margin-bottom:16px;position:relative">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--divider);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:700;color:var(--text);margin-right:4px"><?= t('ld_filters') ?></span>
+
+      <!-- Hosts multiselect -->
+      <div style="position:relative;flex:1;min-width:200px;max-width:280px">
+        <input type="text" id="host-search" class="ld-search" placeholder="<?= t('ld_search_hosts') ?>" autocomplete="off">
+        <div id="host-dropdown" style="display:none;position:fixed;z-index:9999;background:var(--card,#fff);border:1px solid var(--divider,#ddd);border-radius:8px;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.35);min-width:220px;padding:4px 0"></div>
+      </div>
+
+      <!-- Groups multiselect -->
+      <div style="position:relative;flex:1;min-width:200px;max-width:280px">
+        <input type="text" id="group-search" class="ld-search" placeholder="<?= t('ld_search_groups') ?>" autocomplete="off">
+        <div id="group-dropdown" style="display:none;position:fixed;z-index:9999;background:var(--card,#fff);border:1px solid var(--divider,#ddd);border-radius:8px;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.35);min-width:220px;padding:4px 0"></div>
+      </div>
+
+      <!-- Item name search -->
+      <div style="position:relative;flex:1;min-width:160px;max-width:220px">
+        <input type="text" id="name-search" class="ld-search" placeholder="<?= t('ld_filter_items') ?>" autocomplete="off" style="width:100%">
+        <div id="item-dropdown" style="display:none;position:fixed;z-index:9999;background:var(--card,#fff);border:1px solid var(--divider,#ddd);border-radius:8px;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.35);min-width:220px;padding:4px 0"></div>
+      </div>
+
+      <button class="ld-btn ld-btn-primary" id="apply-filter-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <?= t('ld_apply') ?>
+      </button>
+      <button class="ld-btn ld-btn-ghost" id="clear-filter-btn"><?= t('ld_clear') ?></button>
+    </div>
+
+    <!-- Active filter tags -->
+    <div id="active-filters" style="display:none;padding:8px 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.06em"><?= t('ld_active') ?></span>
+    </div>
+  </div>
+
+  <!-- ATENÇÃO: seleção grande sem filtro de nome -->
+  <div id="ld-large-warn" style="display:none;align-items:flex-start;gap:10px;padding:11px 16px;margin-bottom:12px;background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.35);border-radius:10px;font-size:13px;color:#ca8a04">
+    <svg style="flex-shrink:0;margin-top:1px" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div>
+      <strong><?= t('ld_warn_large_title', 'Large selection detected') ?></strong> —
+      <?= t('ld_warn_large_msg', 'Loading many groups without a keyword filter may be slow or time out. For best results, type a keyword in <strong>"Filter loaded items..."</strong> before clicking Apply (e.g. "CPU", "memory", "ping").') ?>
+    </div>
+    <button onclick="document.getElementById('ld-large-warn').style.display='none'" style="margin-left:auto;flex-shrink:0;background:none;border:none;cursor:pointer;color:#ca8a04;font-size:16px;line-height:1;padding:0">&#x2715;</button>
+  </div>
+
+  <!-- MAIN TABLE CARD -->
+  <div style="background:var(--card);border:1px solid var(--divider);border-radius:14px;overflow:hidden">
+
+    <!-- TABLE TOOLBAR -->
+    <div class="ld-toolbar">
+      <div id="selected-info" style="font-size:13px;color:var(--text2)">
+        <span id="selected-count" style="font-weight:700;color:var(--text)">0</span> <?= t('ld_selected_items') ?>
+      </div>
+      <div style="flex:1"></div>
+
+      <!-- Time range -->
+      <div class="ld-range">
+        <input type="datetime-local" id="range-from" title="<?= t('ld_from') ?>">
+        <span class="ld-range-sep">&#8594;</span>
+        <input type="datetime-local" id="range-to" title="<?= t('ld_to') ?>">
+        <button class="ld-btn ld-btn-ghost" id="btn-24h" style="font-size:12px;padding:7px 12px">24h</button>
+      </div>
+
+      <button class="ld-btn ld-btn-primary" id="export-selected-btn" disabled>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+        <?= t('ld_export_pdf') ?>
+      </button>
+      <button class="ld-btn ld-btn-ghost" id="refresh-btn" title="<?= t('ld_refresh') ?>">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      </button>
+    </div>
+
+    <!-- TABLE -->
+    <div class="ld-table-wrap" style="overflow-x:auto">
+      <table id="latest-table" style="min-width:1000px;width:100%;table-layout:fixed">
+        <colgroup>
+          <col style="width:40px">
+          <col style="width:130px">
+          <col style="width:180px">
+          <col style="width:170px">
+          <col style="width:200px">
+          <col style="width:90px">
+          <col style="width:70px">
+          <col style="width:55px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="th-check"><input type="checkbox" id="check-all" title="<?= t('ld_select_all') ?>"></th>
+            <th data-sort="host" class="sorted-col"><?= t('ld_col_host') ?> <span class="sort-arrow" id="arrow-host"></span></th>
+            <th data-sort="name"><?= t('ld_col_item') ?> <span class="sort-arrow" id="arrow-name">&#9650;</span></th>
+            <th><?= t('ld_col_key') ?></th>
+            <th><?= t('ld_col_value') ?></th>
+            <th><?= t('ld_col_ago') ?></th>
+            <th><?= t('ld_col_state') ?></th>
+            <th style="min-width:60px;width:60px;text-align:center;white-space:nowrap"><?= t('ld_col_graph') ?></th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr><td colspan="8" class="ld-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <?= t('ld_no_filter', 'Apply a filter to see data') ?>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="ld-footer">
+      <div class="ld-selection-info">
+        <?= t('ld_total') ?> <b id="total-count">—</b> items
+      </div>
+      <div class="ld-pagination" id="pagination"></div>
+      <div id="last-refresh" style="font-size:11px;color:var(--text3);font-family:var(--mono)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div class="preview-overlay" id="preview-modal">
+  <div class="preview-modal">
+    <div class="preview-header">
+      <div>
+        <div class="preview-title" id="preview-item-name">Item</div>
+        <div class="preview-host"  id="preview-item-host"></div>
+      </div>
+      <button onclick="closePreview()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:22px;line-height:1;padding:0">&times;</button>
+    </div>
+
+    <!-- Rango de tiempo -->
+    <div class="preview-range">
+      <input type="datetime-local" id="preview-from">
+      <span style="color:var(--text3)">&#8594;</span>
+      <input type="datetime-local" id="preview-to">
+      <button class="preview-range-btn" onclick="setPreviewRange(1)">24h</button>
+      <button class="preview-range-btn" onclick="setPreviewRange(7)">7d</button>
+      <button class="preview-range-btn" onclick="setPreviewRange(30)">30d</button>
+      <button class="preview-range-btn" onclick="reloadChart()" style="background:var(--red-a10);color:var(--red);border-color:var(--red-a30)">&#8635; <?= t('ld_apply') ?></button>
+    </div>
+
+    <!-- Selector de tipo de grafico -->
+    <div class="chart-type-bar" style="display:none">
+      <button class="chart-type-btn active" data-type="line">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 8 14 12 10 6 6 10 2 6"/></svg> <?= t('chart_line') ?>
+      </button>
+      <button class="chart-type-btn" data-type="area">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20 L6 10 L10 14 L14 6 L18 10 L22 4 L22 20 Z"/></svg> <?= t('chart_area') ?>
+      </button>
+      <button class="chart-type-btn" data-type="bar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="10" width="4" height="10"/><rect x="10" y="6" width="4" height="14"/><rect x="18" y="2" width="4" height="18"/></svg> <?= t('chart_bar') ?>
+      </button>
+      <button class="chart-type-btn" data-type="spline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 18 C6 18 6 6 12 6 S18 12 22 8"/></svg> <?= t('chart_spline') ?>
+      </button>
+      <button class="chart-type-btn" data-type="step">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 18 8 18 8 10 14 10 14 6 20 6"/></svg> <?= t('chart_step') ?>
+      </button>
+      <button class="chart-type-btn" data-type="scatter">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2"/><circle cx="10" cy="10" r="2"/><circle cx="16" cy="14" r="2"/><circle cx="20" cy="6" r="2"/></svg> <?= t('chart_scatter') ?>
+      </button>
+    </div>
+
+    <!-- Gráfico nativo do Zabbix -->
+    <div class="chart-canvas-wrap">
+      <div class="preview-loading" id="preview-loading"><span class="ld-spinner"></span></div>
+      <div class="preview-nodata" id="preview-nodata" style="display:none">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l18 18M9 9v6m6-6v6M3 9h18"/></svg>
+        <?= t('ld_no_data_range') ?>
+      </div>
+      <img id="preview-zbx-img" src="" alt="" style="display:none;width:100%;height:100%;object-fit:contain"
+        onload="document.getElementById('preview-loading').style.display='none';this.style.display='block'"
+        onerror="document.getElementById('preview-loading').style.display='none';document.getElementById('preview-nodata').style.display='flex';this.style.display='none'">
+    </div>
+
+    <div class="preview-footer">
+      <button class="ld-btn ld-btn-ghost" onclick="closePreview()"><?= t('ld_close') ?></button>
+      <button class="ld-btn ld-btn-green" onclick="exportFromPreview()">
+        &#128196; <?= t('ld_export_pdf') ?></button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div class="export-modal-overlay" id="export-modal">
+  <div class="export-modal">
+    <h3><?= t('ld_export_title') ?></h3>
+    <div class="em-sub" id="export-modal-desc"><?= t('ld_export_desc') ?> <b id="export-count">0</b> <?= t('ld_graphs_selected') ?></div>
+    <form method="post" action="generate.php" target="_blank" id="export-form">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token,ENT_QUOTES,'UTF-8') ?>">
+      <input type="hidden" name="host_item_ids" id="export-item-ids">
+      <input type="hidden" name="from_dt"        id="export-from">
+      <input type="hidden" name="to_dt"          id="export-to">
+      <input type="hidden" name="client_tz"      id="export-tz">
+      <div class="em-row" style="margin-bottom:10px">
+        <button type="submit" class="em-btn em-pdf"><?= t('ld_generate_pdf') ?></button>
+      </div>
+      <div class="em-row">
+        <button type="button" class="em-btn em-cancel" id="export-modal-close"><?= t('ld_cancel') ?></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Variables globales para filtro local
+  var _allLoadedItems = [];
+  var _filteredItems  = [];
+  var _filterPage     = 1;
+  var _perPage        = 50;
+
+const T = <?= json_encode($translations) ?>;
+
+// ── Estado ────────────────────────────────────────────────────────────────────
+let state = {
+  hostids:   [],  // [{id, name}]
+  groupids:  [],  // [{id, name}]
+  name:      '',
+  sort:      'name',
+  sortorder: 'ASC',
+  page:      1,
+  total:     0,
+  selected:  new Map(), // itemid -> {hostid, name, host}
+  loading:   false,
+};
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const tbody        = document.getElementById('table-body');
+const totalCount   = document.getElementById('total-count');
+const selectedCount= document.getElementById('selected-count');
+const exportBtn    = document.getElementById('export-selected-btn');
+const checkAll     = document.getElementById('check-all');
+const pagination   = document.getElementById('pagination');
+const lastRefresh  = document.getElementById('last-refresh');
+const exportModal  = document.getElementById('export-modal');
+
+// ── Tema ──────────────────────────────────────────────────────────────────────
+const body = document.body;
+(function(){
+  var t = localStorage.getItem('zbx-theme') || 'dark';
+  body.className = t === 'light' ? 'light-theme' : 'dark-theme';
+  document.getElementById('theme-toggle').textContent = t === 'light' ? '🌙 Dark' : '☀ Light';
+})();
+document.getElementById('theme-toggle').addEventListener('click', function(){
+  var cur = localStorage.getItem('zbx-theme') || 'dark';
+  var next = cur === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('zbx-theme', next);
+  body.className = next === 'light' ? 'light-theme' : 'dark-theme';
+  this.textContent = next === 'light' ? '🌙 Dark' : '☀ Light';
+});
+
+// ── Quick range ───────────────────────────────────────────────────────────────
+function fmt(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+document.getElementById('btn-24h').addEventListener('click', function(){
+  var now=new Date(), from=new Date(now-86400000);
+  document.getElementById('range-from').value = fmt(from);
+  document.getElementById('range-to').value   = fmt(now);
+});
+
+// ── Autocomplete hosts/groups ─────────────────────────────────────────────────
+function setupAutocomplete(inputId, dropdownId, type, stateKey) {
+  const input    = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  let timer;
+
+  function fetchSuggestions(q) {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fetch('latest_data.php?action=list_'+type+'&q='+encodeURIComponent(q))
+        .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(data => {
+          dropdown.innerHTML = '';
+          if (!data.length) { dropdown.style.display='none'; return; }
+          data.forEach(item => {
+            const id   = type==='hosts' ? item.hostid : item.groupid;
+            const name = item.name;
+            if (state[stateKey].find(x=>x.id===id)) return;
+            const div = document.createElement('div');
+            div.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:13px;font-family:var(--mono);transition:background .1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text,#111);';
+            // Resaltar la parte que coincide con lo buscado
+            if (q) {
+              const idx = name.toLowerCase().indexOf(q.toLowerCase());
+              if (idx >= 0) {
+                div.innerHTML = escH(name.slice(0, idx))
+                  + '<strong style="color:var(--amber,#f59e0b);font-weight:700">' + escH(name.slice(idx, idx+q.length)) + '</strong>'
+                  + escH(name.slice(idx+q.length));
+              } else { div.textContent = name; }
+            } else { div.textContent = name; }
+            div.onmouseenter = ()=>div.style.background='var(--step-hover)';
+            div.onmouseleave = ()=>div.style.background='';
+            div.onclick = () => {
+              state[stateKey].push({id, name});
+              input.value = '';
+              dropdown.style.display = 'none';
+              renderFilterTags();
+            };
+            dropdown.appendChild(div);
+          });
+          dropdown.style.display = dropdown.children.length ? 'block' : 'none';
+        }).catch(err => {
+          dropdown.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--red)">Error: '+err.message+'</div>';
+          dropdown.style.display = 'block';
+        });
+    }, q === '' ? 0 : 250);
+  }
+
+  // Posicionar dropdown bajo el input usando coordenadas reales (position:fixed)
+  function positionDropdown() {
+    var rect = input.getBoundingClientRect();
+    dropdown.style.top   = (rect.bottom + 4) + 'px';
+    dropdown.style.left  = rect.left + 'px';
+    dropdown.style.width = rect.width + 'px';
+  }
+  // Só buscar quando o usuário digita, não ao receber foco
+  input.addEventListener('input', function() {
+    const q = this.value.trim();
+    if (!q) { dropdown.style.display = 'none'; return; }
+    positionDropdown();
+    fetchSuggestions(q);
+  });
+  window.addEventListener('resize', function() {
+    if (dropdown.style.display !== 'none') positionDropdown();
+  });
+
+  document.addEventListener('click', e => {
+    if (!input.contains(e.target) && !dropdown.contains(e.target))
+      dropdown.style.display = 'none';
+  });
+}
+setupAutocomplete('host-search',  'host-dropdown',  'hosts',  'hostids');
+setupAutocomplete('group-search', 'group-dropdown', 'groups', 'groupids');
+
+
+
+// ── Filter tags ───────────────────────────────────────────────────────────────
+function renderFilterTags() {
+  const container = document.getElementById('active-filters');
+  // Remove old tags (keep the label)
+  Array.from(container.querySelectorAll('.filter-tag')).forEach(t=>t.remove());
+
+  state.hostids.forEach(h => {
+    const tag = document.createElement('span');
+    tag.className = 'filter-tag';
+    tag.innerHTML = '&#128444; '+escH(h.name)+' <span class="x" title="Quitar">&#215;</span>';
+    tag.querySelector('.x').onclick = () => { state.hostids = state.hostids.filter(x=>x.id!==h.id); renderFilterTags(); };
+    container.appendChild(tag);
+  });
+  state.groupids.forEach(g => {
+    const tag = document.createElement('span');
+    tag.className = 'filter-tag';
+    tag.innerHTML = '&#9776; '+escH(g.name)+' <span class="x" title="Quitar">&#215;</span>';
+    tag.querySelector('.x').onclick = () => { state.groupids = state.groupids.filter(x=>x.id!==g.id); renderFilterTags(); };
+    container.appendChild(tag);
+  });
+
+  const hasFilters = state.hostids.length || state.groupids.length || state.name;
+  container.style.display = hasFilters ? 'flex' : 'none';
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+// Filtro en vivo sobre los items YA cargados (despues de Apply)
+
+function applyLocalFilter(page) {
+  _filterPage = page || 1;
+  var q = document.getElementById('name-search').value.trim().toLowerCase();
+  // Filtrar: el query debe aparecer al INICIO de una palabra en el nombre o clave
+  // Ej: 'FS' matchea 'FS [/boot]' pero NO 'Checksum' (que tiene 'fs' en medio)
+  _filteredItems = q
+    ? _allLoadedItems.filter(function(i) {
+        var name = i.name.toLowerCase();
+        var key  = (i.key_||'').toLowerCase();
+        // Coincide si el nombre empieza con q, o si una 'palabra' del nombre empieza con q
+        var wordMatch = function(str) {
+          if (str.startsWith(q)) return true;
+          // Dividir por espacios, [ , : para buscar inicio de palabra
+          var words = str.split(/[\s\[\],.:_-]+/);
+          return words.some(function(w){ return w.startsWith(q); });
+        };
+        return wordMatch(name) || wordMatch(key);
+      })
+    : _allLoadedItems.slice();
+  var start   = (_filterPage - 1) * _perPage;
+  var pageItems = _filteredItems.slice(start, start + _perPage);
+  renderTable(pageItems);
+  // Paginacion que usa applyLocalFilter en vez de loadData
+  renderLocalPagination(_filteredItems.length, _perPage, _filterPage);
+  totalCount.textContent = _filteredItems.length;
+}
+
+function renderLocalPagination(total, perPage, current) {
+  var pages = Math.ceil(total / perPage);
+  pagination.innerHTML = '';
+  if (pages <= 1) return;
+  var mkBtn = function(label, page, active, disabled) {
+    var btn = document.createElement('button');
+    btn.className = 'pg-btn' + (active?' active':'');
+    btn.textContent = label; btn.disabled = disabled;
+    if (!disabled && !active) btn.onclick = function(){ applyLocalFilter(page); };
+    pagination.appendChild(btn);
+  };
+  mkBtn('<<', current-1, false, current<=1);
+  var start = Math.max(1, current-2), end = Math.min(pages, start+4);
+  for (var p=start; p<=end; p++) mkBtn(p, p, p===current, false);
+  mkBtn('>>', current+1, false, current>=pages);
+  var info = document.createElement('span');
+  info.className = 'pg-info';
+  info.textContent = (((current-1)*perPage)+1)+'-'+Math.min(current*perPage,total)+' / '+total;
+  pagination.appendChild(info);
+}
+
+document.getElementById('name-search').addEventListener('input', function() {
+  if (!_allLoadedItems.length) return;
+  applyLocalFilter(1);
+});
+
+// ── Cache de navegador (sessionStorage, TTL 2 min) ───────────────────────────
+const CACHE_TTL_MS  = 2 * 60 * 1000; // 2 minutos
+const CACHE_MAX_B   = 4 * 1024 * 1024; // 4 MB máximo por entrada
+
+function cacheKey() {
+  const hids = state.hostids.map(h=>h.id).sort().join(',');
+  const gids = state.groupids.map(g=>g.id).sort().join(',');
+  return 'zbx_cache_h' + hids + '_g' + gids;
+}
+
+function cacheGet() {
+  try {
+    const raw = sessionStorage.getItem(cacheKey());
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (Date.now() - entry.ts > CACHE_TTL_MS) {
+      sessionStorage.removeItem(cacheKey());
+      return null;
+    }
+    return entry.data;
+  } catch(e) { return null; }
+}
+
+function cacheSet(data) {
+  try {
+    const payload = JSON.stringify({ ts: Date.now(), data });
+    // Não salvar se exceder o limite — evita QuotaExceededError
+    if (payload.length > CACHE_MAX_B) return;
+    sessionStorage.setItem(cacheKey(), payload);
+  } catch(e) {
+    // sessionStorage lleno — limpiar entradas antiguas y reintentar
+    try {
+      for (const k of Object.keys(sessionStorage)) {
+        if (k.startsWith('zbx_cache_')) sessionStorage.removeItem(k);
+      }
+      sessionStorage.setItem(cacheKey(), JSON.stringify({ ts: Date.now(), data }));
+    } catch(e2) { /* si sigue fallando, simplemente no se cachea */ }
+  }
+}
+
+function cacheClear() {
+  try {
+    for (const k of Object.keys(sessionStorage)) {
+      if (k.startsWith('zbx_cache_')) sessionStorage.removeItem(k);
+    }
+  } catch(e) {}
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+function loadData(page, forceRefresh) {
+  if (state.loading) return;
+
+  // Se houver dados em cache e não for um refresh forçado, usá-los diretamente
+  if (!forceRefresh) {
+    const cached = cacheGet();
+    if (cached) {
+      _allLoadedItems = cached;
+      applyLocalFilter(1);
+      lastRefresh.textContent = (T.ld_updated||'Updated:') + ' ' + new Date().toLocaleTimeString() + ' ✓';
+      return;
+    }
+  }
+
+  state.loading = true; state.page = page || state.page;
+  tbody.innerHTML = '<tr><td colspan="8" class="ld-empty"><span class="ld-spinner"></span> '+(T.ld_loading||'Loading...')+'</td></tr>';
+
+  const params = new URLSearchParams({
+    action:    'refresh',
+    hostids:   state.hostids.map(h=>h.id).join(','),
+    groupids:  state.groupids.map(g=>g.id).join(','),
+    sort:      state.sort,
+    sortorder: state.sortorder,
+  });
+
+  fetch('latest_data.php?' + params)
+    .then(r=>r.json())
+    .then(data => {
+      state.loading = false;
+      lastRefresh.textContent = (T.ld_updated||'Updated:') + ' ' + new Date().toLocaleTimeString();
+      _allLoadedItems = data.items;
+      cacheSet(data.items); // guardar en cache
+      applyLocalFilter(1);
+    })
+    .catch(() => {
+      state.loading = false;
+      tbody.innerHTML = '<tr><td colspan="8" class="ld-empty" style="color:var(--red)">Error al cargar datos</td></tr>';
+    });
+}
+
+// ── Render table ──────────────────────────────────────────────────────────────
+function renderTable(items) {
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="ld-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'+(T.ld_no_results||'No items found')+'</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  items.forEach(item => {
+    const tr   = document.createElement('tr');
+    const isSel= state.selected.has(item.itemid);
+    if (isSel) tr.classList.add('selected');
+
+    const stateClass = item.state === 1 ? 'state-err' : 'state-ok';
+    const stateText  = item.state === 1 ? 'Error' : 'OK';
+    const valClass   = item.lastvalue === '—' ? 'no-val' : 'has-val';
+
+    tr.innerHTML = `
+      <td class="td-check"><input type="checkbox" data-id="${item.itemid}" data-host="${escA(item.host)}" data-name="${escA(item.name)}" ${isSel?'checked':''}></td>
+      <td class="td-host">${escH(item.host)}</td>
+      <td class="td-name">${escH(item.name)}</td>
+      <td class="td-key">${escH(item.key_)}</td>
+      <td class="td-val ${valClass}">${escH(item.lastvalue)}</td>
+      <td class="td-ago">${item.ago}</td>
+      <td class="td-state"><span class="state-pill ${stateClass}">${stateText}</span></td>
+      <td style="text-align:center">
+        <button class="ld-btn ld-btn-primary" style="padding:5px 10px;font-size:11px"
+          onclick="openPreview('${item.itemid}','${escA(item.name)}','${escA(item.host)}',${item.value_type||0},'${escA(item.units||'')}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 8 14 12 10 6 6 10 2 6"/></svg>
+        </button>
+      </td>`;
+
+    // Checkbox listener
+    tr.querySelector('input[type=checkbox]').addEventListener('change', function() {
+      if (this.checked) {
+        state.selected.set(item.itemid, {hostid: item.hostid, name: item.name, host: item.host});
+        tr.classList.add('selected');
+      } else {
+        state.selected.delete(item.itemid);
+        tr.classList.remove('selected');
+      }
+      updateSelectionUI();
+    });
+
+    tbody.appendChild(tr);
+  });
+  updateSelectionUI();
+}
+
+// ── Pagination ────────────────────────────────────────────────────────────────
+function renderPagination(total, perPage, current) {
+  const pages = Math.ceil(total / perPage);
+  pagination.innerHTML = '';
+  if (pages <= 1) return;
+
+  const mkBtn = (label, page, active, disabled) => {
+    const btn = document.createElement('button');
+    btn.className = 'pg-btn' + (active?' active':'');
+    btn.textContent = label; btn.disabled = disabled;
+    if (!disabled && !active) btn.onclick = () => loadData(page);
+    pagination.appendChild(btn);
+  };
+
+  mkBtn('«', current-1, false, current<=1);
+  const start = Math.max(1, current-2), end = Math.min(pages, start+4);
+  for (let p=start; p<=end; p++) mkBtn(p, p, p===current, false);
+  mkBtn('»', current+1, false, current>=pages);
+
+  const info = document.createElement('span');
+  info.className = 'pg-info';
+  info.textContent = `${((current-1)*perPage)+1}–${Math.min(current*perPage,total)} de ${total}`;
+  pagination.appendChild(info);
+}
+
+// ── Selection UI ──────────────────────────────────────────────────────────────
+function updateSelectionUI() {
+  const n = state.selected.size;
+  selectedCount.textContent = n;
+  exportBtn.disabled = n === 0;
+  checkAll.indeterminate = n > 0 && n < tbody.querySelectorAll('input[type=checkbox]').length;
+  checkAll.checked = n > 0 && tbody.querySelectorAll('input[type=checkbox]:not(:checked)').length === 0;
+}
+
+checkAll.addEventListener('change', function() {
+  tbody.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.checked = this.checked;
+    const tr = cb.closest('tr');
+    const id = cb.dataset.id;
+    if (this.checked) {
+      state.selected.set(id, {name: cb.dataset.name, host: cb.dataset.host});
+      tr.classList.add('selected');
+    } else {
+      state.selected.delete(id);
+      tr.classList.remove('selected');
+    }
+  });
+  updateSelectionUI();
+});
+
+// ── Sort ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('thead th[data-sort]').forEach(th => {
+  th.addEventListener('click', function() {
+    const field = this.dataset.sort;
+    if (state.sort === field) {
+      state.sortorder = state.sortorder === 'ASC' ? 'DESC' : 'ASC';
+    } else {
+      state.sort = field; state.sortorder = 'ASC';
+    }
+    document.querySelectorAll('thead th[data-sort]').forEach(t => {
+      t.classList.remove('sorted');
+      const a = t.querySelector('.sort-arrow');
+      if (a) a.textContent = '';
+    });
+    this.classList.add('sorted');
+    const arrow = this.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = state.sortorder === 'ASC' ? '▲' : '▼';
+
+    // Se já houver dados carregados, ordenar localmente sem ir ao servidor
+    if (_allLoadedItems.length) {
+      _allLoadedItems.sort(function(a, b) {
+        const va = field === 'host' ? (a.host||'') : (a.name||'');
+        const vb = field === 'host' ? (b.host||'') : (b.name||'');
+        const cmp = va.localeCompare(vb, undefined, {sensitivity:'base'});
+        return state.sortorder === 'DESC' ? -cmp : cmp;
+      });
+      applyLocalFilter(_filterPage);
+    } else {
+      loadData(1);
+    }
+  });
+});
+
+// ── Export selected ───────────────────────────────────────────────────────────
+exportBtn.addEventListener('click', openExportModal);
+
+function openExportModal() {
+  const ids = [...state.selected.keys()].join(',');
+  document.getElementById('export-count').textContent = state.selected.size;
+  document.getElementById('export-item-ids').value = ids;
+  document.getElementById('export-from').value     = document.getElementById('range-from').value;
+  document.getElementById('export-to').value       = document.getElementById('range-to').value;
+  document.getElementById('export-tz').value       = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  exportModal.classList.add('open');
+}
+
+function exportSingle(itemid, label) {
+  document.getElementById('export-count').textContent = '1 item: ' + label;
+  document.getElementById('export-item-ids').value = itemid;
+  document.getElementById('export-from').value     = document.getElementById('range-from').value;
+  document.getElementById('export-to').value       = document.getElementById('range-to').value;
+  document.getElementById('export-tz').value       = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  exportModal.classList.add('open');
+}
+
+document.getElementById('export-modal-close').onclick = () => exportModal.classList.remove('open');
+exportModal.addEventListener('click', e => { if (e.target === exportModal) exportModal.classList.remove('open'); });
+
+document.getElementById('export-form').addEventListener('submit', function() {
+  exportModal.classList.remove('open');
+  // Regenerar CSRF via AJAX - no recarga la pagina, no interrumpe el PDF en otra pestana
+  setTimeout(function() {
+    fetch('latest_data.php?action=new_csrf')
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (data.token) {
+          document.querySelector('#export-form input[name=csrf_token]').value = data.token;
+        }
+      })
+      .catch(function(){});
+  }, 300);
+});
+
+// ── Apply / clear filter ──────────────────────────────────────────────────────
+document.getElementById('apply-filter-btn').addEventListener('click', () => {
+  state.name = document.getElementById('name-search').value.trim();
+
+  // Aviso se houver 3+ grupos ou 50+ hosts sem filtro de nome
+  const groupCount = state.groupids.length;
+  const hostCount  = state.hostids.length;
+  const hasName    = state.name.length > 0;
+  const warnEl     = document.getElementById('ld-large-warn');
+
+  if (!hasName && (groupCount >= 3 || hostCount >= 50)) {
+    if (warnEl) {
+      warnEl.style.display = 'flex';
+      // Auto-ocultar após 8 segundos
+      setTimeout(() => { warnEl.style.display = 'none'; }, 8000);
+    }
+  } else {
+    if (warnEl) warnEl.style.display = 'none';
+  }
+
+  loadData(1);
+});
+
+
+// Enter en name-search manejado por applyLocalFilter
+document.getElementById('clear-filter-btn').addEventListener('click', () => {
+  state.hostids = []; state.groupids = []; state.name = '';
+  document.getElementById('host-search').value  = '';
+  document.getElementById('group-search').value = '';
+  document.getElementById('name-search').value  = '';
+  cacheClear();
+  renderFilterTags();
+  tbody.innerHTML = '<tr><td colspan="8" class="ld-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'+(T.ld_no_filter||'Apply a filter to see data')+'</td></tr>';
+  totalCount.textContent = '—';
+  pagination.innerHTML = '';
+});
+document.getElementById('refresh-btn').addEventListener('click', () => {
+  cacheClear(); // invalidar cache para forçar recarga limpa
+  loadData(state.page, true);
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escH(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escA(s) { return String(s??'').replace(/"/g,'&quot;'); }
+
+// ── PREVIEW DE GRAFICO ────────────────────────────────────────────────────────
+var _previewItem  = null;
+var _previewChart = {_cachedData:[{t:0,v:0}]};
+
+function parseDTL(val) {
+  if (!val) return null;
+  var m = val.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m ? new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]) : null;
+}
+function fmtDate(d) {
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+
+         String(d.getDate()).padStart(2,'0')+'T'+
+         String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+
+function openPreview(itemid, name, host, vtype, units) {
+  _previewItem = {itemid:itemid, name:name, host:host, vtype:vtype||0, units:units||''};
+  document.getElementById('preview-item-name').textContent = name;
+  document.getElementById('preview-item-host').textContent = host;
+  var gFrom = document.getElementById('range-from').value;
+  var gTo   = document.getElementById('range-to').value;
+  if (gFrom && gTo) {
+    document.getElementById('preview-from').value = gFrom;
+    document.getElementById('preview-to').value   = gTo;
+  } else {
+    setPreviewRange(1);
+    document.getElementById('preview-modal').classList.add('open');
+    return;
+  }
+  document.getElementById('preview-modal').classList.add('open');
+  reloadChart();
+}
+
+function closePreview() {
+  document.getElementById('preview-modal').classList.remove('open');
+  var img = document.getElementById('preview-zbx-img');
+  if (img) { img.src=''; img.style.display='none'; }
+}
+
+document.getElementById('preview-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePreview();
+});
+
+function setPreviewRange(days) {
+  var now=new Date(), from=new Date(now - days*86400000);
+  document.getElementById('preview-from').value = fmtDate(from);
+  document.getElementById('preview-to').value   = fmtDate(now);
+  reloadChart();
+}
+
+function reloadChart() {
+  if (!_previewItem) return;
+  var fromVal = document.getElementById('preview-from').value;
+  var toVal   = document.getElementById('preview-to').value;
+  if (!fromVal || !toVal) return;
+
+  var loading = document.getElementById('preview-loading');
+  var nodata  = document.getElementById('preview-nodata');
+  var img     = document.getElementById('preview-zbx-img');
+
+  loading.style.display='flex'; nodata.style.display='none';
+  img.style.display='none'; img.src='';
+
+  // Formato Zabbix: "YYYY-MM-DD HH:mm:ss"
+  var fromZbx = fromVal.replace('T',' ') + ':00';
+  var toZbx   = toVal.replace('T',' ')   + ':00';
+
+  img.src = 'graphs/zbx_chart_proxy.php'
+    + '?itemid=' + encodeURIComponent(_previewItem.itemid)
+    + '&from='   + encodeURIComponent(fromZbx)
+    + '&to='     + encodeURIComponent(toZbx)
+    + '&width=860&height=440'
+    + '&_t='     + Date.now();
+}
+
+function exportFromPreview() {
+  if (!_previewItem || !_previewChart) return;
+  var btn = document.querySelector('.preview-footer .ld-btn-green');
+  var origText = btn.innerHTML;
+  btn.innerHTML = '<span class="ld-spinner" style="border-top-color:#fff"></span>';
+  btn.disabled = true;
+
+  setTimeout(function() {
+    try {
+      var zbxImg  = document.getElementById('preview-zbx-img');
+      if (!zbxImg || !zbxImg.src) throw new Error('No image loaded');
+      var imgData = zbxImg.src;
+
+      // Tamano A4 landscape
+      var pdf     = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      var pW      = pdf.internal.pageSize.getWidth();
+      var pH      = pdf.internal.pageSize.getHeight();
+
+      // Header
+      pdf.setFillColor(224, 60, 60);
+      pdf.rect(0, 0, pW, 14, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(11);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Zabbix Report', 8, 9);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.text(new Date().toLocaleString(), pW - 8, 9, { align: 'right' });
+
+      // Item info
+      pdf.setTextColor(30, 30, 30);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(_previewItem.name, 8, 24);
+      pdf.setFontSize(9);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(100, 100, 100);
+      pdf.text(_previewItem.host, 8, 30);
+
+      // Rango de tiempo
+      var fromEl = document.getElementById('preview-from');
+      var toEl   = document.getElementById('preview-to');
+      if (fromEl.value && toEl.value) {
+        var rangeStr = fromEl.value.replace('T',' ') + '  →  ' + toEl.value.replace('T',' ');
+        pdf.text(rangeStr, 8, 35);
+      }
+
+      var zbxImg2 = document.getElementById('preview-zbx-img');
+      var cW = zbxImg2 && zbxImg2.naturalWidth  > 0 ? zbxImg2.naturalWidth  : 860;
+      var cH = zbxImg2 && zbxImg2.naturalHeight > 0 ? zbxImg2.naturalHeight : 440;
+      var ratio = cH / cW;
+      var imgW  = pW - 16;
+      var imgH  = imgW * ratio;
+      var maxH  = pH - 44;
+      if (imgH > maxH) { imgH = maxH; imgW = imgH / ratio; }
+      var imgX  = (pW - imgW) / 2;
+      pdf.addImage(imgData, 'PNG', imgX, 40, imgW, imgH);
+
+      // Guardar
+      var safeName = _previewItem.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+      pdf.save(safeName + '_' + _previewItem.host + '.pdf');
+    } catch(e) {
+      console.error('PDF export error:', e);
+      alert('Error generating PDF: ' + e.message);
+    }
+
+    btn.innerHTML = origText;
+    btn.disabled  = false;
+  }, 100);
+}
+
+</script>
+
+<div style="text-align:center;padding:28px 20px 20px;font-family:var(--font)">
+  <div style="font-size:13px;color:var(--text2);margin-bottom:12px"><?= t('common_author_credit') ?></div>
+</div>
+
+</body>
+</html>
