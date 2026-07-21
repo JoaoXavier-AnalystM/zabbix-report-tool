@@ -31,9 +31,10 @@ composer.phar
 .claude/projects/
 .remember/
 
-# ── Skills (estado local) ──
+# ── Skills e agentes (ferramentas locais) ──
 skills-lock.json
-.agents/cache/
+.agents/
+.claude/
 
 # ── Auditoria de segurança ──
 security-audits/

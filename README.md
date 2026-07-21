@@ -8,24 +8,49 @@ Interface web em PHP para gerar relatórios e gerenciar manutenções do Zabbix.
 
 ## Instalação
 
+### 1. Clone
+
 ```bash
 git clone https://github.com/JoaoXavier-AnalystM/zabbix-report-tool.git /usr/share/zabbix/ui/zabbix-report
 cd /usr/share/zabbix/ui/zabbix-report
-cp config.template.php config.php
-composer install --no-dev --optimize-autoloader
-mkdir -p tmp logs && chmod 770 tmp logs && chown -R www-data:www-data tmp logs
 ```
 
-**Únicas configurações obrigatórias no `config.php`:**
+### 2. Configure
+
+Crie o arquivo de configuração a partir do template e edite a URL e fuso horário do seu Zabbix:
+
+```bash
+cp config.template.php config.php
+```
+
+Edite `config.php`:
 
 ```php
 define('ZABBIX_URL', 'http://seu-zabbix/zabbix');   // URL do frontend
 define('ZABBIX_TZ', 'America/Sao_Paulo');            // Fuso horário
 ```
 
-Pronto. Acesse `login.php`.
+> Só isso. Se usa LDAP/AD, configure também `ZBX_USER_PREFIX` e `ZBX_USER_SUFFIX`.
 
-> **LDAP/AD:** se seu Zabbix usa LDAP, edite `ZBX_USER_PREFIX` e `ZBX_USER_SUFFIX` no `config.php`.
+### 3. Dependências
+
+```bash
+composer install --no-dev --optimize-autoloader
+```
+
+> Instala o **dompdf**, necessário para gerar os PDFs.
+
+### 4. Permissões
+
+```bash
+mkdir -p tmp logs
+chmod 770 tmp logs
+chown -R www-data:www-data tmp logs
+```
+
+### 5. Acesse
+
+Abra `login.php` no navegador.
 
 ---
 
