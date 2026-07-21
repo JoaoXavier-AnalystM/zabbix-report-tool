@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST'){
 <!-- TOP BAR -->
 <div class="top-bar">
   <div class="lang-switcher">
-    <a href="?lang=es"<?= ($current_lang==='es') ? ' class="active"' : '' ?>>ES</a>
+    <a href="?lang=pt-br"<?= ($current_lang==='pt-br') ? ' class="active"' : '' ?>>PT</a>
     <a href="?lang=en"<?= ($current_lang==='en') ? ' class="active"' : '' ?>>EN</a>
   </div>
   <button id="theme-toggle" class="theme-btn">&#9788; <?= t('theme_light') ?></button>

@@ -12,7 +12,7 @@ header('Content-Type: text/html; charset=utf-8');
 header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline';");
 ?>
 <!doctype html>
-<html lang="<?= htmlspecialchars($current_lang ?? 'es', ENT_QUOTES, 'UTF-8') ?>">
+<html lang="<?= htmlspecialchars($current_lang ?? 'pt-br', ENT_QUOTES, 'UTF-8') ?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
