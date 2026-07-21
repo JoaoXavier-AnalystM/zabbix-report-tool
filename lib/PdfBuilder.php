@@ -30,11 +30,15 @@ class PdfBuilder
 
         $baseDir = __DIR__ . '/..';
         $zabbixLogo  = $baseDir . '/assets/Zabbix_logo.png';
+        $unicredSvg  = $baseDir . '/assets/unicred.svg';
         $zabbixB64 = is_file($zabbixLogo)
             ? 'data:image/png;base64,' . base64_encode(file_get_contents($zabbixLogo))
             : '';
+        $unicredSvgRaw = is_file($unicredSvg)
+            ? file_get_contents($unicredSvg)
+            : '';
 
-        $html = self::buildHtml($imgs, $zabbixB64, $userName, $fromText, $toText);
+        $html = self::buildHtml($imgs, $zabbixB64, $unicredSvgRaw, $userName, $fromText, $toText);
 
         $eng = $engine ?: 'dompdf';
         if ($eng === 'wkhtmltopdf') {
@@ -48,7 +52,7 @@ class PdfBuilder
         }
     }
 
-    private static function buildHtml(array $imgs, string $zabbixLogo, string $userName, string $fromText, string $toText): string
+    private static function buildHtml(array $imgs, string $zabbixLogo, string $unicredSvg, string $userName, string $fromText, string $toText): string
     {
         $blocks = [];
         $toc = [];
@@ -96,7 +100,6 @@ class PdfBuilder
 
         $mainTitle = t('pdf_main_title');
         $generatedLabel = t('pdf_generated_on');
-        $authorLabel = t('pdf_author_credit');
         $pageLabel = t('pdf_page_x_of_y');
 
         $html = '<!DOCTYPE html>
@@ -115,18 +118,18 @@ class PdfBuilder
                     border-bottom: 2px solid #d00; background: #fff;
                 }
                 .header-left img { height: 24px; }
-                .header-right { font-family: Arial, sans-serif; font-size: 14px; font-weight: 700; color: #004a35; letter-spacing: 2px; }
+                .header-right svg { height: 22px; width: auto; }
 
                 /* ── FOOTER ── */
                 .footer {
-                    position: fixed; bottom: -38px; left: 0; right: 0; height: 28px;
-                    text-align: center; font-size: 8px; color: #888;
-                    border-top: 1px solid #ddd; display: flex;
-                    justify-content: center; align-items: center; gap: 8px;
-                    background: #fff; padding: 4px 0;
+                    position: fixed; bottom: -38px; left: 0; right: 0; height: 32px;
+                    font-size: 8px; color: #888;
+                    border-top: 1px solid #ddd;
+                    background: #fff; padding: 2px 45px;
                 }
-                .footer img { height: 16px; }
-                .footer .sep { color: #ccc; }
+                .footer-top { display: flex; justify-content: space-between; align-items: center; }
+                .footer-top img { height: 14px; }
+                .footer-pages { text-align: center; font-size: 7px; color: #aaa; margin-top: 1px; }
 
                 /* ── CONTENT ── */
                 .cover-box {
@@ -161,7 +164,7 @@ class PdfBuilder
                 <div class="header-left">
                     <img src="'.$zabbixLogo.'" alt="Zabbix">
                 </div>
-                <div class="header-right">UNICRED</div>
+                <div class="header-right">'.$unicredSvg.'</div>
             </div>
 
             <div class="content">
@@ -178,19 +181,21 @@ class PdfBuilder
             </div>
 
             <div class="footer">
-                <span>'.$generatedLabel.' '.$nowFormatted.'</span>
-                <span class="sep">|</span>
-                <span>'.$authorLabel.'</span>
-                <img src="'.$zabbixLogo.'" alt="Zabbix">
+                <div class="footer-top">
+                    <span>'.$generatedLabel.' '.$nowFormatted.'</span>
+                    <img src="'.$zabbixLogo.'" alt="Zabbix">
+                </div>
+                <div class="footer-pages">'.$pageLabel.'</div>
             </div>
             <script type="text/php">
                 if (isset($pdf)) {
                     $text = "'.$pageLabel.'";
                     $font = $fontMetrics->get_font("Arial, sans-serif", "normal");
-                    $size = 8;
-                    $y = $pdf->get_height() - 20;
-                    $x = $pdf->get_width() - 50 - $fontMetrics->get_text_width($text, $font, $size);
-                    $pdf->page_text($x, $y, $text, $font, $size);
+                    $size = 7;
+                    $w = $fontMetrics->get_text_width($text, $font, $size);
+                    $y = $pdf->get_height() - 16;
+                    $x = ($pdf->get_width() - $w) / 2;
+                    $pdf->page_text($x, $y, $text, $font, $size, [0,0,0,0.4]);
                 }
             </script>
         </body>
