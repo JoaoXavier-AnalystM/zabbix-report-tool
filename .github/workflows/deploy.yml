@@ -22,9 +22,8 @@ jobs:
       - name: Connect Tailscale
         uses: tailscale/github-action@v3
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-actions
+          authkey: ${{ secrets.TS_AUTH_KEY }}
+          hostname: github-actions-deploy
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -53,8 +52,6 @@ jobs:
           cp config.template.php config.php
           sed -i "s|{{ZABBIX_URL}}|${{ secrets.ZABBIX_URL }}|" config.php
           sed -i "s|{{ZABBIX_TZ}}|${{ secrets.ZABBIX_TZ }}|" config.php
-          sed -i "s|{{ZBX_USER_PREFIX}}|${{ secrets.ZBX_USER_PREFIX }}|" config.php
-          sed -i "s|{{ZBX_USER_SUFFIX}}|${{ secrets.ZBX_USER_SUFFIX }}|" config.php
 
       - name: Deploy via Rsync
         uses: burnett01/rsync-deployments@7.0.2

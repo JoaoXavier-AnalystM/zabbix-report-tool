@@ -72,7 +72,7 @@ Aplicação PHP que se instala junto ao servidor Zabbix e adiciona uma interface
 
 ### Configuração Rápida
 
-1. Copie a pasta do projeto para um diretório acessível pelo servidor web (ex: `/var/www/html/zabbix-report/`)
+1. Copie a pasta do projeto para `/usr/share/zabbix/ui/zabbix-report/`
 
 2. Crie o `config.php` a partir do template:
    ```bash

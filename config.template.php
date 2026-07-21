@@ -20,9 +20,9 @@ define('APPLY_LOGO_BLEND_MODE', true);
 define('PDF_ENGINE', 'dompdf');
 define('VERIFY_SSL', true);
 
-// Prefixo/sufixo para LDAP/AD
-define('ZBX_USER_PREFIX', '{{ZBX_USER_PREFIX}}');
-define('ZBX_USER_SUFFIX', '{{ZBX_USER_SUFFIX}}');
+// Prefixo/sufixo para LDAP/AD (deixe vazio se não usa)
+define('ZBX_USER_PREFIX', '');
+define('ZBX_USER_SUFFIX', '');
 
 // Diretórios
 $baseDir = __DIR__;
