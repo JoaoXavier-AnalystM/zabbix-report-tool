@@ -1,98 +1,97 @@
-# Zabbix Report Tool — PDF, Excel, SLA & Gestor de Manutenções
+# Zabbix Report Tool
 
-Aplicação PHP que se instala junto ao servidor Zabbix e adiciona uma interface moderna de relatórios e manutenções. Sem necessidade de modificar o Zabbix.
+Interface web em PHP para gerar relatórios e gerenciar manutenções do Zabbix. Instala ao lado do servidor, sem modificar o Zabbix.
 
 **Compatível com Zabbix 6.0 · 6.4 · 7.0 · 7.4**
 
 ---
 
-## ✨ Funcionalidades
+## Instalação
 
-### 📄 Gerador de Relatórios PDF
-- Assistente de 5 etapas: selecione hosts → modelos → itens → período → gerar
-- Pré-visualização de gráficos com 6 tipos (linha, área, barra, spline, degrau, dispersão)
-- Barra de progresso durante a geração
+```bash
+git clone https://github.com/JoaoXavier-AnalystM/zabbix-report-tool.git /usr/share/zabbix/ui/zabbix-report
+cd /usr/share/zabbix/ui/zabbix-report
+cp config.template.php config.php
+composer install --no-dev --optimize-autoloader
+mkdir -p tmp logs && chmod 770 tmp logs && chown -R www-data:www-data tmp logs
+```
 
-### 📊 Exportação Excel — 4 tipos de relatório
-| Relatório | Descrição |
-|-----------|-----------|
-| Lista Geral de Hosts | Todos os hosts monitorados com status |
-| Inventário Detalhado | SO, RAM, CPU mín/méd/pico, memória, discos, uptime |
-| Relatório de Problemas | Alertas e eventos do período selecionado |
-| Relatório de Picos | Valores de pico de CPU e memória por host |
+**Únicas configurações obrigatórias no `config.php`:**
+
+```php
+define('ZABBIX_URL', 'http://seu-zabbix/zabbix');   // URL do frontend
+define('ZABBIX_TZ', 'America/Sao_Paulo');            // Fuso horário
+```
+
+Pronto. Acesse `login.php`.
+
+> **LDAP/AD:** se seu Zabbix usa LDAP, edite `ZBX_USER_PREFIX` e `ZBX_USER_SUFFIX` no `config.php`.
+
+---
+
+## Funcionalidades
+
+### 📄 Relatórios PDF
+
+1. Selecione hosts, grupos, templates e itens
+2. Escolha o período (24h, 7d, 15d, 30d ou intervalo personalizado)
+3. Gere o PDF com gráficos, índice e capa
+
+O PDF inclui cabeçalho com logos, nome do usuário, período e data de geração.
+
+### 📊 Exportação Excel — 4 tipos
+
+| Relatório | O que contém |
+|-----------|-------------|
+| Lista de Hosts | Hosts monitorados com status |
+| Inventário | SO, RAM, CPU mín/méd/pico, memória, discos, uptime |
+| Problemas | Alertas e eventos do período |
+| Picos | Valores de pico de CPU e memória por host |
+
+Filtros de tempo: 24h · 7d · 15d · 30d ou intervalo livre.
 
 ### 📈 Relatório de SLA
-- Disponibilidade baseada em **eventos de trigger ICMP** (não apenas ping)
-- Exibe SLA% real, tempo total de inatividade e cada incidente com início/fim/duração
-- Exporta para visualização HTML ou CSV
-- Compatível com Zabbix 6.0 a 7.4
+
+Disponibilidade calculada a partir de eventos de trigger ICMP. Mostra SLA% real, downtime total e cada incidente com início/fim/duração. Exporta HTML ou CSV. Filtros de tempo rápidos: 24h, 7d, 15d, 30d.
 
 ### 🔧 Gestor de Manutenções
-- Lista de manutenções com status em tempo real (Ativa / Programada / Expirada)
-- Criação de manutenções com agendamento completo:
-  - Única, Diária, Semanal, Mensal
-  - Modo mensal com **Dia do mês** e **Dia da semana** (igual à interface do Zabbix)
-- Adicionar hosts a manutenções existentes
-- Exportar lista de hosts por manutenção para CSV
-- Busca de hosts com autocompletar
 
-### 🖥️ Explorador de Dados Recentes
-- Navegar e filtrar todos os itens monitorados por hosts e grupos
-- Autocompletar em tempo real para hosts e grupos
+- Lista manutenções ativas, programadas e expiradas
+- Cria manutenções com agendamento: única, diária, semanal, mensal
+- Adiciona hosts a manutenções existentes
+- Exporta lista de hosts por manutenção para CSV
+- Pausa rápida de host ou item específico
+
+### 🖥️ Explorador de Dados Recentes (Latest Data)
+
+- Navega e filtra itens monitorados por hosts e grupos
+- Autocompletar em tempo real
 - Tabela paginada com filtro inline
-- Exportação para PDF com um clique
+- Exporta selecionados para PDF com um clique
+- Botões rápidos de período: 24h, 7d, 15d, 30d
 
 ---
 
-## 🎨 Interface
+## Interface
 
-- Temas claro/escuro modernos com preferência persistente
-- Suporte a imagem de fundo personalizada
-- Totalmente responsivo
-- Bilíngue: **Português (Brasil) / Inglês**
-- Topbar fixa com cards em glassmorphism
+- Temas claro/escuro com preferência persistente
+- Imagem de fundo personalizada
+- Responsivo
+- **Português (Brasil) / Inglês** — troca via `?lang=pt-br` ou `?lang=en`
+- Logos customizáveis no login (`assets/unicred.svg` + `assets/Zabbix_logo.png`)
 
 ---
 
-## 🔒 Segurança
+## Segurança
 
-- Autenticação via API do Zabbix com token (senha não é armazenada em sessão)
+- Autenticação via token da API Zabbix (senha nunca armazenada em sessão)
 - Proteção CSRF em todos os formulários
-- Dados permanecem apenas no banco de dados do Zabbix
+- Sessão regenerada após login
+- SSL verificável (`VERIFY_SSL = true`)
 
 ---
 
-## 📚 Instalação
-
-### Requisitos
-- PHP 7.2 ou superior
-- Extensões PHP: curl, gd, json, mbstring, xml, zip, zlib, fileinfo
-- Composer (para dependência dompdf)
-- Permissão de escrita nos diretórios `tmp/` e `logs/`
-
-### Configuração Rápida
-
-1. Copie a pasta do projeto para `/usr/share/zabbix/ui/zabbix-report/`
-
-2. Crie o `config.php` a partir do template:
-   ```bash
-   cp config.template.php config.php
-   ```
-
-3. Edite o `config.php` e defina a URL do Zabbix e o fuso horário:
-   ```php
-   define('ZABBIX_URL', 'http://seu-servidor-zabbix/zabbix');
-   define('ZABBIX_TZ', 'America/Sao_Paulo');
-   ```
-
-4. Instale as dependências do Composer:
-   ```bash
-   composer install --no-dev --optimize-autoloader
-   ```
-
-5. Acesse `login.php` pelo navegador.
-
-### Opcional: Adicionar ao menu do Zabbix
+## Adicionar ao menu do Zabbix
 
 Edite `/usr/share/zabbix/include/classes/helpers/CMenuHelper.php`, encontre:
 ```php
@@ -108,16 +107,10 @@ $submenu_reports[] = CWebUser::checkAccess(CRoleHelper::UI_REPORTS_SYSTEM_INFO)
     : null;
 ```
 
-### LDAP / Active Directory
-
-Configure prefixo/sufixo no `config.php` se seu Zabbix usa LDAP:
-```php
-define('ZBX_USER_PREFIX', 'DOMINIO\\');    // Active Directory
-define('ZBX_USER_SUFFIX', '@dominio.local'); // Email UPN
-```
-
 ---
 
-## 🌐 Idiomas
+## Deploy com GitHub Actions
 
-Português (Brasil) e Inglês já inclusos. Para adicionar novos idiomas, crie `lang/XX.php` e adicione o código em `SUPPORTED_LANGS` no arquivo `lib/i18n.php`.
+Workflow em `.github/workflows/deploy.yml`. Deploy automático via Tailscale + rsync. Requer secrets configurados no repositório:
+
+`TS_AUTH_KEY` · `SSH_HOST` · `SSH_USER` · `SSH_KEY` · `DEPLOY_PATH` · `ZABBIX_URL` · `ZABBIX_TZ`
