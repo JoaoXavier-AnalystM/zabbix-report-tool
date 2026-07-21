@@ -3,6 +3,13 @@ name: Deploy to Zabbix Server
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'security-audits/**'
+      - '.agents/**'
+      - '.claude/**'
   workflow_dispatch:
     inputs:
       skip_composer:
