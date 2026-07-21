@@ -105,13 +105,38 @@ class PdfBuilder
                 @page { margin: 80px 45px 50px 45px; }
                 body { font-family: Arial, sans-serif; font-size: 11px; color: #333; line-height: 1.5; margin: 0; padding: 0; }
 
-                /* ── HEADER ── */
+                /* ═══════════════════════════════════════════════════════════
+                   HEADER — DOMPDF-compatible (NO flexbox)
+                   Usa float:left / float:right + clear:both no wrapper
+                   ═══════════════════════════════════════════════════════════ */
                 .header {
-                    position: fixed; top: -62px; left: 0; right: 0; height: 44px;
-                    padding: 4px 45px; display: flex; align-items: center; justify-content: space-between;
-                    border-bottom: 2px solid #d00; background: #fff;
+                    position: fixed;
+                    top: -62px;
+                    left: 0;
+                    right: 0;
+                    height: 44px;
+                    padding: 4px 45px;
+                    border-bottom: 2px solid #d00;
+                    background: #fff;
                 }
-                .header img { height: 22px; }
+                .header::after {
+                    content: "";
+                    display: block;
+                    clear: both;
+                }
+                .header .logo-left {
+                    float: left;
+                    height: 22px;
+                }
+                .header .logo-right {
+                    float: right;
+                    height: 22px;
+                }
+                .header .logo-left img,
+                .header .logo-right img {
+                    height: 22px;
+                    display: block;
+                }
 
                 /* ── FOOTER ── */
                 .footer {
@@ -147,8 +172,12 @@ class PdfBuilder
         </head>
         <body>
             <div class="header">
-                <img src="'.$unicredLogo.'" alt="Logo">
-                <img src="'.$zabbixLogo.'" alt="Zabbix">
+                <div class="logo-left">
+                    <img src="'.$unicredLogo.'" alt="Logo Unicred">
+                </div>
+                <div class="logo-right">
+                    <img src="'.$zabbixLogo.'" alt="Zabbix">
+                </div>
             </div>
 
             <div class="content">
