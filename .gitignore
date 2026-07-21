@@ -45,6 +45,9 @@ _*
 *.png
 !.png
 
+# ── Scratch / notas ──
+var
+
 # ── OS ──
 .DS_Store
 Thumbs.db
