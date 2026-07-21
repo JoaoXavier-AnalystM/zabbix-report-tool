@@ -54,7 +54,7 @@ jobs:
           sed -i "s|{{ZABBIX_TZ}}|${{ secrets.ZABBIX_TZ }}|" config.php
 
       - name: Deploy via Rsync
-        uses: burnett01/rsync-deployments@7.0.2
+        uses: burnett01/rsync-deployments@8.0.1
         with:
           switches: -avzr --delete --exclude='.git' --exclude='.github' --exclude='tmp/*' --exclude='logs/*' --exclude='config.template.php' --exclude='composer-setup.php' --exclude='cookies.txt' --exclude='vendor/.git' --exclude='.gitignore' --exclude='security-audits'
           path: /
