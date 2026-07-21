@@ -5,10 +5,12 @@ class ZabbixApi64Adapter extends ZabbixApiAdapter
 {
     private $api;
     
-    public function __construct($url, $user, $pass, $options = null)
+    public function __construct($url, $user, $pass, $options = null, bool $skipLogin = false)
     {
         $this->api = new ZabbixApi($url, $user, $pass, $options);
-        $this->login();
+        if (!$skipLogin) {
+            $this->login();
+        }
     }
     
     private function login(): void

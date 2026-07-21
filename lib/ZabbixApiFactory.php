@@ -24,39 +24,34 @@ class ZabbixApiFactory
 
     public static function createWithAuth(string $url, string $authToken, $options = null): ZabbixApiAdapter
     {
-        // Cria instância sem credenciais reais (não fará login)
-        $api = new ZabbixApi($url, '', '', $options);
-
-        // Injeta token de autenticação diretamente
-        $reflection = new ReflectionClass($api);
-        $property = $reflection->getProperty('auth');
-        $property->setAccessible(true);
-        $property->setValue($api, $authToken);
-
-        // Detecta versão e cria adapter compatível com token já injetado
         $version = self::detectVersion($url);
 
-        // Para todos os adapters, usamos reflection para pular o login
-        // e injetar o token diretamente na ZabbixApi interna
+        // Cria adapter sem fazer login (skipLogin=true)
+        // Depois injeta o token diretamente
         if (version_compare($version, '7.0', '>=')) {
-            $adapter = new ZabbixApi70Adapter($url, '_token_', '_token_', $options);
-        } elseif (version_compare($version, '6.4', '>=')) {
-            $adapter = new ZabbixApi64Adapter($url, '_token_', '_token_', $options);
-        } else {
-            $adapter = new ZabbixApi60Adapter($url, '_token_', '_token_', $options);
-        }
-
-        // Substitui a ZabbixApi interna pela que já tem o token
-        $adapterRef = new ReflectionClass($adapter);
-        $apiProp = $adapterRef->getProperty('api');
-        $apiProp->setAccessible(true);
-        $apiProp->setValue($adapter, $api);
-
-        // ZabbixApi70Adapter também tem $token próprio
-        if ($adapter instanceof ZabbixApi70Adapter) {
+            $adapter = new ZabbixApi70Adapter($url, '', '', $options, true);
+            // Zabbix 7.x usa Authorization: Bearer header
+            $adapterRef = new ReflectionClass($adapter);
             $tokenProp = $adapterRef->getProperty('token');
             $tokenProp->setAccessible(true);
             $tokenProp->setValue($adapter, $authToken);
+        } elseif (version_compare($version, '6.4', '>=')) {
+            $adapter = new ZabbixApi64Adapter($url, '', '', $options, true);
+        } else {
+            $adapter = new ZabbixApi60Adapter($url, '', '', $options, true);
+        }
+
+        // Zabbix 6.0/6.4: injeta token no campo 'auth' do JSON-RPC
+        if (!($adapter instanceof ZabbixApi70Adapter)) {
+            $adapterRef = new ReflectionClass($adapter);
+            $apiProp = $adapterRef->getProperty('api');
+            $apiProp->setAccessible(true);
+            $api = $apiProp->getValue($adapter);
+
+            $apiRef = new ReflectionClass($api);
+            $authProp = $apiRef->getProperty('auth');
+            $authProp->setAccessible(true);
+            $authProp->setValue($api, $authToken);
         }
 
         return $adapter;

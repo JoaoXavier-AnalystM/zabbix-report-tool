@@ -6,13 +6,12 @@ class ZabbixApi70Adapter extends ZabbixApiAdapter
     private $api;
     private $token;
     
-    public function __construct($url, $user, $pass, $options = null)
+    public function __construct($url, $user, $pass, $options = null, bool $skipLogin = false)
     {
-        // Criar instância SEM login automático
         $this->api = new ZabbixApi($url, $user, $pass, $options);
-        
-        // Hacer login manual con el formato correcto
-        $this->login();
+        if (!$skipLogin) {
+            $this->login();
+        }
     }
     
     /**

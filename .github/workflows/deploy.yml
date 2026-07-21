@@ -72,7 +72,7 @@ jobs:
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
             mkdir -p tmp logs
-            chmod 750 tmp logs
-            chown -R www-data:www-data tmp logs vendor
+            chmod 770 tmp logs
+            chown -R deploy:www-data tmp logs vendor
             rm -rf tmp/*
             echo "Deploy completo — $(date -u)"
