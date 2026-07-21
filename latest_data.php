@@ -622,6 +622,9 @@ thead th.th-check { width: 40px; }
         <span class="ld-range-sep">&#8594;</span>
         <input type="datetime-local" id="range-to" title="<?= t('ld_to') ?>">
         <button class="ld-btn ld-btn-ghost" id="btn-24h" style="font-size:12px;padding:7px 12px">24h</button>
+        <button class="ld-btn ld-btn-ghost" id="btn-7d" style="font-size:12px;padding:7px 12px">7d</button>
+        <button class="ld-btn ld-btn-ghost" id="btn-15d" style="font-size:12px;padding:7px 12px">15d</button>
+        <button class="ld-btn ld-btn-ghost" id="btn-30d" style="font-size:12px;padding:7px 12px">30d</button>
       </div>
 
       <button class="ld-btn ld-btn-primary" id="export-selected-btn" disabled>
@@ -814,11 +817,15 @@ document.getElementById('theme-toggle').addEventListener('click', function(){
 function fmt(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
-document.getElementById('btn-24h').addEventListener('click', function(){
-  var now=new Date(), from=new Date(now-86400000);
+function setMainRange(hours){
+  var now=new Date(), from=new Date(now-hours*3600000);
   document.getElementById('range-from').value = fmt(from);
   document.getElementById('range-to').value   = fmt(now);
-});
+}
+document.getElementById('btn-24h').addEventListener('click', function(){ setMainRange(24); });
+document.getElementById('btn-7d').addEventListener('click',  function(){ setMainRange(168); });
+document.getElementById('btn-15d').addEventListener('click', function(){ setMainRange(360); });
+document.getElementById('btn-30d').addEventListener('click', function(){ setMainRange(720); });
 
 // ── Autocomplete hosts/groups ─────────────────────────────────────────────────
 function setupAutocomplete(inputId, dropdownId, type, stateKey) {

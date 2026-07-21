@@ -271,6 +271,9 @@ body::before { content:''; position:fixed; inset:0; z-index:0; background:rgba(0
             <span class="ld-range-sep">&#8594;</span>
             <input type="datetime-local" id="range-to" title="To">
             <button class="ld-btn ld-btn-ghost" id="btn-24h" style="font-size:11.5px;padding:5px 10px">24h</button>
+            <button class="ld-btn ld-btn-ghost" id="btn-7d" style="font-size:11.5px;padding:5px 10px">7d</button>
+            <button class="ld-btn ld-btn-ghost" id="btn-15d" style="font-size:11.5px;padding:5px 10px">15d</button>
+            <button class="ld-btn ld-btn-ghost" id="btn-30d" style="font-size:11.5px;padding:5px 10px">30d</button>
           </div>
           <button class="ld-btn ld-btn-ghost" id="refresh-btn" style="padding:5px 9px" title="Refresh">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
@@ -373,11 +376,11 @@ function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'
 function pad(n){return String(n).padStart(2,'0');}
 function fmt(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());}
 
-document.getElementById('btn-24h').addEventListener('click',function(){
-  var n=new Date(),f=new Date(n-86400000);
-  document.getElementById('range-from').value=fmt(f);
-  document.getElementById('range-to').value=fmt(n);
-});
+function setMainRange(h){var n=new Date();document.getElementById('range-from').value=fmt(new Date(n-h*3600000));document.getElementById('range-to').value=fmt(n);}
+document.getElementById('btn-24h').addEventListener('click',function(){setMainRange(24)});
+document.getElementById('btn-7d').addEventListener('click',function(){setMainRange(168)});
+document.getElementById('btn-15d').addEventListener('click',function(){setMainRange(360)});
+document.getElementById('btn-30d').addEventListener('click',function(){setMainRange(720)});
 
 // autocomplete
 function setupAC(inpId,ddId,type,key){
