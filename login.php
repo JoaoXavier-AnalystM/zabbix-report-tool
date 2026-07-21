@@ -138,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST'){
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="author" content="Axel Del Canto">
+<meta name="author" content="Time M&O">
 <title><?= t('login_title') ?></title>
 <link rel="stylesheet" href="assets/css/login.css">
 <?php if (defined('APPLY_LOGO_BLEND_MODE') && APPLY_LOGO_BLEND_MODE): ?>

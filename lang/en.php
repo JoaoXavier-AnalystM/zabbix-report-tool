@@ -94,10 +94,10 @@ return [
     'pdf_toc_title' => 'Table of Contents',
     'pdf_generated_on' => 'Generated on',
     'pdf_page_x_of_y' => 'Page {PAGE_NUM} of {PAGE_COUNT}',
-    'pdf_author_credit' => 'PDF Developed by Axel Del Canto',
+    'pdf_author_credit' => 'PDF Developed by Time M&O',
 
     // Common
-    'common_author_credit' => 'Developed by Axel Del Canto',
+    'common_author_credit' => 'Developed by Time M&O',
     'maintenances_button' => 'Maintenances',
     'logout_button' => 'Logout',
 

@@ -125,7 +125,8 @@ body::before {
   display: flex; align-items: center; justify-content: center;
   gap: 12px; margin-bottom: 28px;
 }
-.custom-logo  { max-height: 34px; width: auto; }
+.custom-logo  { max-height: 26px; width: auto; }
+.logo-row img { object-fit: contain; }
 .logo-divider { width: 1px; height: 28px; background: var(--border); }
 .zabbix-badge {
   background: var(--red); color: #fff;

@@ -94,10 +94,10 @@ return [
     'pdf_toc_title' => 'Índice',
     'pdf_generated_on' => 'Gerado em',
     'pdf_page_x_of_y' => 'Página {PAGE_NUM} de {PAGE_COUNT}',
-    'pdf_author_credit' => 'PDF Desenvolvido por Axel Del Canto',
+    'pdf_author_credit' => 'PDF Desenvolvido por Time M&O',
 
     // Comum
-    'common_author_credit' => 'Desenvolvido por Axel Del Canto',
+    'common_author_credit' => 'Desenvolvido por Time M&O',
     'maintenances_button' => 'Manutenções',
     'logout_button' => 'Sair',
 
