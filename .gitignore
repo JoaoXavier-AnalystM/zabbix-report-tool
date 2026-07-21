@@ -27,6 +27,7 @@ composer.phar
 
 # ── Claude Code (estado local) ──
 .claude/settings.local.json
+.claude/settings.local.json.tmp.*
 .claude/projects/
 .remember/
 
